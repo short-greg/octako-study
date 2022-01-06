@@ -1,26 +1,16 @@
 from abc import ABC, abstractmethod, abstractproperty
 import copy
 from dataclasses import dataclass
-# from src.blueprints.utils import PDELIM
-from octako.teaching import data_controllers as study_controller
 import optuna
 import typing
-# from octako.teaching import data_controllers as learners as base_learner
-
 import hydra
 from . import base
-
 from abc import ABC, abstractmethod
-from dataclasses import InitVar, asdict, dataclass
-
+from dataclasses import asdict, dataclass
 import optuna
-import typing
-from octako.teaching import studies, dojos
 import typing
 import hydra
 from omegaconf import DictConfig
-
-# from .studies import OptunaStudy, OptunaStudyRunner, StudyRunner
 
 PDELIM = "/"
 
@@ -102,7 +92,6 @@ class Default(TrialSelector):
     def suggest(self, path: str, trial: optuna.Trial):
         return self._val
     
-    # def _update_best_helper(self, best_val):
     def update_best(self, best_val: dict, path: str=None):
         return self.default
 
@@ -128,7 +117,6 @@ class Int(TrialSelector):
             return result
         return self._base ** result
 
-    # def _update_best_helper(self, best_val: dict, path:str):
     def update_best(self, best_val: dict, path: str=None):
         val = best_val.get(self.cat_path(path), self.default)
         if self._base is None:
@@ -155,7 +143,6 @@ class Bool(TrialSelector):
             self.cat_path(path) , 0, 1
         ))
 
-    # def _update_best_helper(self, best_val: dict, path:str):
     def update_best(self, best_val: dict, path: str=None):
         val = best_val.get(self.cat_path(path), self.default)
         return bool(val)
@@ -178,7 +165,6 @@ class Float(TrialSelector):
             self.cat_path(path) , self._low, self._high
         )
 
-    # def _update_best_helper(self, best_val: dict, path:str):
     def update_best(self, best_val: dict, path: str=None):
         val = best_val.get(self.cat_path(path), self.default)
         return val
@@ -199,7 +185,6 @@ class Categorical(TrialSelector):
             self.cat_path(path), self._categories
         )
 
-    #def _update_best_helper(self, best_val: dict, path:str):
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
 
@@ -354,13 +339,13 @@ ParamMap: typing.Dict[str, TrialSelector] = {
     "Non": Non
 }
 
+
 def convert_params(trial_params: dict):
 
     return {
         k: ParamMap[params['type']].from_dict(params)
         for k, params in trial_params.items()
     }
-
 
 
 class StudyRunner(object):
@@ -414,45 +399,34 @@ class OptunaStudyRunner(object):
         studies.append(best)
         return studies, evaluation
 
-        # parameters.append(optuna_study.best_params)
 
-        # best_params = ParamConverter(study.best_params).to_dict()
-        # parameters.append(study.best_params)
-        
-        # courses.append(self._study.perform(best=study.best_params))
+# example
+# config path - blueprint
+# config name - a9a
 
-        # trial_param_dict = experiment_cfg.trial_params or {}
-        # base_param_dict = experiment_cfg.base_params or {}
+class Config:
 
-        # if experiment_cfg.experiment_type == "single":
-        #     base_params = study.base_param_cls(**base_param_dict)
-        #     study.run_single(experiment_cfg.name, experiment_cfg.base_params)
-        # else:
-        #     trial_params = study.trial_param_cls(**trial_param_dict)
-        #     base_params = study.base_param_cls(**base_param_dict)
-        #     study.run_study(
-        #         experiment_cfg.name, experiment_cfg.n_studies, 
-        #         base_params, trial_params
-        #     )
-
-# import src.fuzzy.studies as fuzzy_studies
+    name: str  # name fo config to choose
+    path: str ='blueprints/'
 
 
-def run(config_path, config_name, study_cls: typing.Type[OptunaStudy]):
+def create_runner(config: Config, study_cls: typing.Type[OptunaStudy]):
 
-    @hydra.main(config_path=config_path, config_name=config_name)
-    def run_experiment(cfg : DictConfig):
+    @hydra.main(config_path=config.path, config_name=config.name)
+    def _(cfg : DictConfig):
 
         hydra.utils.call(
             cfg.paths
         )
-
+        params = convert_params(cfg.params)
+        study = study_cls(params)
         if bool(cfg.full_study):
-            return OptunaStudyRunner(study_cls(cfg.params), cfg.name, cfg.n_trials, cfg.to_maximize)
+            return OptunaStudyRunner(study, cfg.name, cfg.n_trials, cfg.to_maximize)
         else:
-            return StudyRunner(study_cls(cfg.params))
+            return StudyRunner(study)
+    
+    return _()
             
-
 
 
 # class OptunaStudy(studies.Study):
@@ -482,6 +456,30 @@ def run(config_path, config_name, study_cls: typing.Type[OptunaStudy]):
 
 #         study.run(experiment_cfg.name)
 
+
+# OLD STUDY RUn
+        # parameters.append(optuna_study.best_params)
+
+        # best_params = ParamConverter(study.best_params).to_dict()
+        # parameters.append(study.best_params)
+        
+        # courses.append(self._study.perform(best=study.best_params))
+
+        # trial_param_dict = experiment_cfg.trial_params or {}
+        # base_param_dict = experiment_cfg.base_params or {}
+
+        # if experiment_cfg.experiment_type == "single":
+        #     base_params = study.base_param_cls(**base_param_dict)
+        #     study.run_single(experiment_cfg.name, experiment_cfg.base_params)
+        # else:
+        #     trial_params = study.trial_param_cls(**trial_param_dict)
+        #     base_params = study.base_param_cls(**base_param_dict)
+        #     study.run_study(
+        #         experiment_cfg.name, experiment_cfg.n_studies, 
+        #         base_params, trial_params
+        #     )
+
+# import src.fuzzy.studies as fuzzy_studies
 
 
 # class ObjectiveRunner(object):
@@ -689,3 +687,37 @@ def run(config_path, config_name, study_cls: typing.Type[OptunaStudy]):
 #             self._nest_params_helper(s, value, nested_params)
 
 #         return nested_params
+
+
+# import typing
+# import hydra
+# from omegaconf import DictConfig
+
+# from .studies import OptunaStudy, OptunaStudyRunner, StudyRunner
+# # import src.fuzzy.studies as fuzzy_studies
+
+
+# def run(config_path, config_name, study_cls: typing.Type[OptunaStudy]):
+
+#     @hydra.main(config_path=config_path, config_name=config_name)
+#     def run_experiment(cfg : DictConfig):
+
+#         hydra.utils.call(
+#             cfg.paths
+#         )
+
+#         if bool(cfg.full_study):
+#             return OptunaStudyRunner(study_cls(cfg.params), cfg.name, cfg.n_trials, cfg.to_maximize)
+#         else:
+#             return StudyRunner(study_cls(cfg.params))
+            
+
+    # if cfg.type == "Fuzzy":
+
+    #     if cfg.fuzzy.full_study is True:
+    #         fuzzy_studies.run_full_study(cfg)
+    #     else:
+    #         fuzzy_studies.run_single_study(cfg)
+
+# if __name__=='__main__':
+#     run_experiment()
