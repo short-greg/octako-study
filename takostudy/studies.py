@@ -1,116 +1,14 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 import copy
 from dataclasses import dataclass
 # from src.blueprints.utils import PDELIM
 from octako.teaching import data_controllers as study_controller
 import optuna
 import typing
-from octako.teaching import studies, params
 # from octako.teaching import data_controllers as learners as base_learner
 
 import hydra
 from . import base
-
-
-class Runner(object):
-
-    def __init__(self, cfg):
-
-        self._cfg = cfg
-
-    def run(self):
-
-        experiment_cfg = list(self._cfg.blueprints.experiments.items())[0][1]
-
-        override_base_params = hydra.utils.instantiate(experiment_cfg.override_base_params)
-        override_trial_params = hydra.utils.instantiate(experiment_cfg.override_trial_params)
-
-        study_builder: base.StudyBuilder = hydra.utils.instantiate(
-            experiment_cfg.study_builder, override_base_params=override_base_params, 
-            override_trial_params=override_trial_params
-        )
-        study: base.Study = hydra.utils.instantiate(experiment_cfg.study_type, study_builder=study_builder)
-
-        study.run(experiment_cfg.name)
-
-        # trial_param_dict = experiment_cfg.trial_params or {}
-        # base_param_dict = experiment_cfg.base_params or {}
-
-        # if experiment_cfg.experiment_type == "single":
-        #     base_params = study.base_param_cls(**base_param_dict)
-        #     study.run_single(experiment_cfg.name, experiment_cfg.base_params)
-        # else:
-        #     trial_params = study.trial_param_cls(**trial_param_dict)
-        #     base_params = study.base_param_cls(**base_param_dict)
-        #     study.run_study(
-        #         experiment_cfg.name, experiment_cfg.n_studies, 
-        #         base_params, trial_params
-        #     )
-
-
-
-PDELIM = "/"
-
-
-class ObjectiveRunner(object):
-
-    def __init__(
-        self, name, study_builder: studies.StudyBuilder, study_accessor: study_controller.StudyAccessor
-    ):
-        self.name = name
-        self.study_builder = study_builder
-        self.study_accessor = study_accessor
-        self._cur_study = 0
-
-    def __call__(self, trial):
-
-        # experiment_accessor = self.study_accessor.create_experiment(f'{self.name} - Trial {self._cur_study}')
-
-        # pass the name of the experiment
-        learner, my_dojo, experiment_accessor = self.study_builder.build_for_trial(
-            f'{self.name} - Trial {self._cur_study}', trial, self.study_accessor
-        )
-        my_dojo.run()
-
-        # TODO: Evaluate results of experiment accessor
-        self._cur_study += 1
-        
-        module_accessor = experiment_accessor.get_module_accessor_by_name(
-            self.study_builder.optimize_module
-        )
-
-        results = module_accessor.get_results(
-            retrieve_fields=[self.study_builder.optimize_field], 
-            round_ids_filter=[module_accessor.progress.round]
-        )
-        return results.mean(axis=0).to_dict()[self.study_builder.optimize_field]
-
-
-class FullStudy(studies.Study):
-
-    def __init__(self, name: str, n_trials: int, study_builder: studies.StudyBuilder):
-        self.study_builder = study_builder
-        self.n_trials = n_trials
-        self.name = name
-
-    def run(self, name):
-        # create the experiment accessor
-        data_controller = study_controller.DataController()
-        study_accessor = data_controller.create_study(self.name)
-
-        objective = ObjectiveRunner(
-            name, self.study_builder, study_accessor
-        )
-
-        my_study = optuna.create_study(direction=self.study_builder.direction)
-        my_study.optimize(objective, n_trials=self.n_trials)
-
-        # experiment_accessor = study_accessor.create_experiment("Best")
-        
-        learner, dojo, experiment_accessor = self.study_builder.build_best(
-            "Best", params.ParamConverter(my_study.best_params).to_dict(), study_accessor
-        )
-        dojo.run()
 
 from abc import ABC, abstractmethod
 from dataclasses import InitVar, asdict, dataclass
@@ -118,9 +16,47 @@ from dataclasses import InitVar, asdict, dataclass
 import optuna
 import typing
 from octako.teaching import studies, dojos
+import typing
+import hydra
+from omegaconf import DictConfig
 
+# from .studies import OptunaStudy, OptunaStudyRunner, StudyRunner
 
 PDELIM = "/"
+
+
+class Study(ABC):
+
+    @abstractmethod
+    def perform(self) -> float:
+        pass
+
+    @abstractproperty
+    def params(self):
+        pass
+
+
+class OptunaStudy(Study):
+
+    @abstractmethod
+    def perform(self) -> float:
+        pass
+
+    @abstractmethod
+    def resample(self):
+        """Use to resample the study given the parameters of the study
+
+        Returns: OptunaStudy
+        """
+        pass
+
+    @abstractmethod
+    def from_best(self, best: dict):
+        """Use to resample the study given the parameters of the study
+
+        Returns: OptunaStudy
+        """
+        pass
 
 
 class TrialSelector(ABC):
@@ -314,7 +250,6 @@ class LogUniform(TrialSelector):
             self.cat_path(path), self._low, self._high
         )
 
-    # def _update_best_helper(self, best_val: dict, path:str):
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
     
@@ -388,11 +323,10 @@ class Array(TrialSelector):
             # cur_params = best[i_str]
             # for k in cur_params.keys():
             for k, v in self._params.items():
-                # key, param = self._get_param_by_name(k)
-
                 v = v.update_best(best_val, cur_path)
-                # v = param.update_best(cur_params)
                 result[i][k] = v
+                # key, param = self._get_param_by_name(k)
+                # v = param.update_best(cur_params)
         
         return result
     
@@ -428,14 +362,23 @@ def convert_params(trial_params: dict):
     }
 
 
-class OptunaStudy(studies.Study):
-    
-    @abstractmethod
-    def perform(self, trial=None, best=None, validation=False) -> typing.List[dojos.Course]:
-        pass
-
 
 class StudyRunner(object):
+    
+    def __init__(
+        self, study: Study, base_name: str
+    ):
+        self._study = study
+        self._base_name = base_name
+    
+
+    def run(self, name) -> dict:
+        
+        evaluation = self._study.perform()
+        return evaluation, [self._study]
+    
+
+class OptunaStudyRunner(object):
 
     @staticmethod
     def get_direction(to_maximize):
@@ -449,31 +392,157 @@ class StudyRunner(object):
         self._n_trials = n_trials
         self._direction = self.get_direction(to_maximize)
     
-    def get_objective(self, name: str, courses: typing.List[dojos.Course], parameters: typing.List) -> typing.Callable:
+    def get_objective(self, name: str, studies: typing.List) -> typing.Callable:
         cur: int = 0
         def objective(trial: optuna.Trial):
             nonlocal cur
-            nonlocal courses
-            nonlocal parameters
-            course = self._study.perform(trial=trial, validation=True)
-            parameters.append(trial.params)
+            nonlocal studies
+            cur_study = self._study.resample(trial=trial, validation=True)
+            evaluation = cur_study.perform()
             cur += 1
-            courses.append(course)
-            return course.evaluate().result
+            return evaluation
         return objective
 
-    def run(self, name) -> typing.List[dojos.Course]:
+    def run(self, name) -> dict:
 
-        courses: typing.List[dojos.Course] = []
-        parameters = []
-        study = optuna.create_study(direction=self._direction)
-        objective = self.get_objective(name, courses, parameters)
-        study.optimize(objective, self._n_trials)
+        studies = []
+        optuna_study = optuna.create_study(direction=self._direction)
+        objective = self.get_objective(name, studies)
+        optuna_study.optimize(objective, self._n_trials)
+        best = self._study.from_best(optuna_study.best_params)
+        evaluation = best.perform()
+        studies.append(best)
+        return studies, evaluation
+
+        # parameters.append(optuna_study.best_params)
+
         # best_params = ParamConverter(study.best_params).to_dict()
-        parameters.append(study.best_params)
+        # parameters.append(study.best_params)
         
-        courses.append(self._study.perform(best=study.best_params))
-        return courses, parameters
+        # courses.append(self._study.perform(best=study.best_params))
+
+        # trial_param_dict = experiment_cfg.trial_params or {}
+        # base_param_dict = experiment_cfg.base_params or {}
+
+        # if experiment_cfg.experiment_type == "single":
+        #     base_params = study.base_param_cls(**base_param_dict)
+        #     study.run_single(experiment_cfg.name, experiment_cfg.base_params)
+        # else:
+        #     trial_params = study.trial_param_cls(**trial_param_dict)
+        #     base_params = study.base_param_cls(**base_param_dict)
+        #     study.run_study(
+        #         experiment_cfg.name, experiment_cfg.n_studies, 
+        #         base_params, trial_params
+        #     )
+
+# import src.fuzzy.studies as fuzzy_studies
+
+
+def run(config_path, config_name, study_cls: typing.Type[OptunaStudy]):
+
+    @hydra.main(config_path=config_path, config_name=config_name)
+    def run_experiment(cfg : DictConfig):
+
+        hydra.utils.call(
+            cfg.paths
+        )
+
+        if bool(cfg.full_study):
+            return OptunaStudyRunner(study_cls(cfg.params), cfg.name, cfg.n_trials, cfg.to_maximize)
+        else:
+            return StudyRunner(study_cls(cfg.params))
+            
+
+
+
+# class OptunaStudy(studies.Study):
+    
+#     @abstractmethod
+#     def perform(self, trial=None, best=None, validation=False) -> typing.List[dojos.Course]:
+#         pass
+
+# class Runner(object):
+
+#     def __init__(self, cfg):
+
+#         self._cfg = cfg
+
+#     def run(self):
+
+#         experiment_cfg = list(self._cfg.blueprints.experiments.items())[0][1]
+
+#         override_base_params = hydra.utils.instantiate(experiment_cfg.override_base_params)
+#         override_trial_params = hydra.utils.instantiate(experiment_cfg.override_trial_params)
+
+#         study_builder: base.StudyBuilder = hydra.utils.instantiate(
+#             experiment_cfg.study_builder, override_base_params=override_base_params, 
+#             override_trial_params=override_trial_params
+#         )
+#         study: base.Study = hydra.utils.instantiate(experiment_cfg.study_type, study_builder=study_builder)
+
+#         study.run(experiment_cfg.name)
+
+
+
+# class ObjectiveRunner(object):
+
+#     def __init__(
+#         self, name, study_builder: studies.StudyBuilder, study_accessor: study_controller.StudyAccessor
+#     ):
+#         self.name = name
+#         self.study_builder = study_builder
+#         self.study_accessor = study_accessor
+#         self._cur_study = 0
+
+#     def __call__(self, trial):
+
+#         # experiment_accessor = self.study_accessor.create_experiment(f'{self.name} - Trial {self._cur_study}')
+
+#         # pass the name of the experiment
+#         learner, my_dojo, experiment_accessor = self.study_builder.build_for_trial(
+#             f'{self.name} - Trial {self._cur_study}', trial, self.study_accessor
+#         )
+#         my_dojo.run()
+
+#         # TODO: Evaluate results of experiment accessor
+#         self._cur_study += 1
+        
+#         module_accessor = experiment_accessor.get_module_accessor_by_name(
+#             self.study_builder.optimize_module
+#         )
+
+#         results = module_accessor.get_results(
+#             retrieve_fields=[self.study_builder.optimize_field], 
+#             round_ids_filter=[module_accessor.progress.round]
+#         )
+#         return results.mean(axis=0).to_dict()[self.study_builder.optimize_field]
+
+
+# class FullStudy(studies.Study):
+
+#     def __init__(self, name: str, n_trials: int, study_builder: studies.StudyBuilder):
+#         self.study_builder = study_builder
+#         self.n_trials = n_trials
+#         self.name = name
+
+#     def run(self, name):
+#         # create the experiment accessor
+#         data_controller = study_controller.DataController()
+#         study_accessor = data_controller.create_study(self.name)
+
+#         objective = ObjectiveRunner(
+#             name, self.study_builder, study_accessor
+#         )
+
+#         my_study = optuna.create_study(direction=self.study_builder.direction)
+#         my_study.optimize(objective, n_trials=self.n_trials)
+
+#         # experiment_accessor = study_accessor.create_experiment("Best")
+        
+#         learner, dojo, experiment_accessor = self.study_builder.build_best(
+#             "Best", params.ParamConverter(my_study.best_params).to_dict(), study_accessor
+#         )
+#         dojo.run()
 
 
 # class Optunable(ABC):
