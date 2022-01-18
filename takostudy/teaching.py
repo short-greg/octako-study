@@ -1,12 +1,11 @@
 from abc import abstractmethod
 import dataclasses
 import typing
-from sango.nodes import STORE_REF, Action, Status, Tree, Sequence, Parallel, action, cond, loads_, loads, neg, task, task_, until, var_, const_
-from sango.vars import Const, Ref, Var, ref_
+from sango.nodes import STORE_REF, Action, Status, Tree, Sequence, Parallel, action, cond, loads_, loads, neg, task, task_, until, var_
+from sango.vars import ref_
 from torch.types import Storage
 
 from tqdm import tqdm
-from functools import partial
 from dataclasses import dataclass, is_dataclass
 import pandas as pd
 from torch.utils.data import  DataLoader
@@ -116,11 +115,11 @@ class Results:
 
 class Teach(Action):
     
-    results = const_()
-    dataset = const_()
-    progress = const_()
-    batch_size = const_()
-    learner = const_()
+    results = var_()
+    dataset = var_()
+    progress = var_()
+    batch_size = var_()
+    learner = var_()
 
     def __init__(self, name: str):
         super().__init__(name)
