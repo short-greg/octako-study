@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod, abstractproperty
 import copy
 from dataclasses import InitVar, dataclass, field
 import functools
+from multiprocessing.sharedctypes import Value
 import optuna
 import typing
 import hydra
@@ -26,27 +27,27 @@ class Study(ABC):
         pass
 
 
-class OptunaStudy(Study):
+# class OptunaStudy(Study):
 
-    @abstractmethod
-    def perform(self) -> float:
-        pass
+#     @abstractmethod
+#     def perform(self) -> float:
+#         pass
 
-    @abstractmethod
-    def resample(self):
-        """Use to resample the study given the parameters of the study
+#     @abstractmethod
+#     def resample(self):
+#         """Use to resample the study given the parameters of the study
 
-        Returns: OptunaStudy
-        """
-        pass
+#         Returns: OptunaStudy
+#         """
+#         pass
 
-    @abstractmethod
-    def from_best(self, best: dict):
-        """Use to resample the study given the parameters of the study
+#     @abstractmethod
+#     def from_best(self, best: dict):
+#         """Use to resample the study given the parameters of the study
 
-        Returns: OptunaStudy
-        """
-        pass
+#         Returns: OptunaStudy
+#         """
+#         pass
 
 
 class TrialSelector(ABC):
@@ -288,9 +289,7 @@ class Array(TrialSelector):
             if param._name == name:
                 return k, param
 
-    # def _update_best_helper(self, best_val: dict, path:str):
     def update_best(self, best_val: dict, path: str=None):
-        # best = best_val[self.cat_path(path)]
         
         path = self.cat_path(path)
         size_path = f'{path}/size'
@@ -351,15 +350,6 @@ def convert_params(trial_params: dict):
 @dataclass
 class OptunaParams(object):
 
-    trial: InitVar[optuna.Trial]=None
-    path: InitVar[str] = ''
-
-    def __post_init__(self, trial, path:str):
-        params = asdict(self)
-        for k, v in params.items():
-            if isinstance(v, TrialSelector):
-                setattr(self, k, v.suggest(path, trial))
-    
     def load_state_dict(self, state_dict: dict):
         for k, v in state_dict.items():
             if isinstance(v, TrialSelector):
@@ -369,30 +359,31 @@ class OptunaParams(object):
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, trial_params, trial=None, path: str=''):
+    def from_dict(cls, overrides):
         return cls(**{
             k: ParamMap[params['type']].from_dict(params)
-            for k, params in trial_params.items()
-        }, trial=trial, path=path)
+            for k, params in overrides.items()
+        })
+    
+    def define(self, params):
 
+        return self.__class__(**params)
 
-class Components(object):
-
-    def __init__(self, components: dict):
-
-        self._components = components
-
-    def load_state_dict(self, state_dict):
-
-        for k, v in state_dict.items():
-            self._components[k].load_state_dict(v)
-
-    def state_dict(self):
-
-        state_dict_ = {}
-        for k, v in self._components:
-            state_dict_[k] = v.state_dict()
-        return state_dict_
+    def sample(self, trial=None, path: str=''):
+        args = {}
+        params = asdict(self)
+        for k, v in params.items():
+            if isinstance(v, TrialSelector):
+                args[k] = v.suggest(path, trial)
+        return self.__class__(**args)
+    
+    @property
+    def defined(self):
+        params = asdict(self)
+        for k, v in params.items():
+            if isinstance(v, TrialSelector):
+                return False
+        return True
 
 
 @dataclass
@@ -401,8 +392,7 @@ class Summary(object):
     params: OptunaParams
     score: float
     maximize: bool
-    components: Components = field(default_factory=Components)
-    # add in results in here
+    for_validation: bool
 
     def bests(self, other):
         if self.maximize and other.maximize:
@@ -421,7 +411,7 @@ class Summary(object):
         self.params.load_state_dict(state_dict['params'])
         self.score = state_dict['score']
         self.maximize = state_dict['maximize']
-        self.components.load_state_dict(state_dict['components'])
+        self.for_validation = state_dict['for_validation']
 
     def state_dict(self):
 
@@ -429,19 +419,15 @@ class Summary(object):
         state_dict_['score'] = self.score
         state_dict_['maximize'] = self.maximize
         state_dict_['params'] = self.params.state_dict()
-        state_dict_['components'] = self.components.state_dict()
+        state_dict_['for_validation'] = self.for_validation
         return state_dict_
 
 
 class Experiment(ABC):
 
     @abstractmethod
-    def validate(self) -> Summary:
-        pass
-
-    @abstractmethod
-    def test(self) -> Summary:
-        pass
+    def train(self, for_validation: bool=True) -> Summary:
+        raise NotImplementedError
 
 
 class OptunaExperiment(Experiment):
@@ -449,17 +435,50 @@ class OptunaExperiment(Experiment):
     class Params(OptunaParams):
         pass
 
-    def _get_params(self, param_overrides: dict, trial: None, path: str='', ):
-        return self.Params(
-            **param_overrides, trial, path
-        )
+    def __init__(self, param_overrides: dict):
+
+        self._params_base = self.Params.from_dict(**param_overrides)
+        self._params = None
+        self._trials: typing.List[Summary] = []
+        self._best_index = None
+    
+    def reset(self):
+        
+        self._params = None
+        self._trials: typing.List[Summary] = []
+        self._best_index = None
+    
+    @property
+    def params_ready(self):
+        return self._params is not None
+
+    def resample(self, trial, path: str=''):
+        self._params = self._params_base.sample(trial, path)
+
+    def define_params(self, values: dict):
+        self._params = self._params.define(values)
+    
+    def to_best(self):
+        if self._best_index is None:
+            raise ValueError('Experiment trial has not been run yet so there is no best')
+        self._params = self._trials[self._best_index].params
+    
+    def train(self, for_validation: bool=True) -> Summary:
+
+        if self._params is None:
+            raise ValueError('Params have not been set yet. Must set them or resample')
+        summary = self._train_for_validation() if for_validation else self._train_for_testing()
+        self._trials.append(summary)
+        if self._best_index is None or summary.bests(self._trials[self._best_index]):
+            self._best_index = len(self._trials) - 1
+        return summary
 
     @abstractmethod
-    def validate(self, param_overrides: dict, trial: None, path: str='', ) -> Summary:
+    def _train_for_validation(self) -> Summary:
         raise NotImplementedError
 
     @abstractmethod
-    def test(self, param_overrides: dict, trial: None, path: str='') -> Summary:
+    def _train_for_testing(self) -> Summary:
         raise NotImplementedError
 
 
@@ -484,13 +503,14 @@ class OptunaStudy(Study):
         self._n_trials = n_trials
         self._direction = self.get_direction(to_maximize)
     
-    def get_objective(self, name: str, studies: typing.List) -> typing.Callable:
+    def get_objective(self, name: str, summaries: typing.List) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
             nonlocal cur
-            nonlocal studies
-            evaluation = self._experiment.validate(trial=trial, validation=True)
+            nonlocal summaries
+            self._experiment.resample(trial)
+            evaluation = self._experiment.train(for_validation=True)
             cur += 1
             return evaluation.score
         return objective
@@ -501,8 +521,8 @@ class OptunaStudy(Study):
         optuna_study = optuna.create_study(direction=self._direction)
         objective = self.get_objective(name, summaries)
         optuna_study.optimize(objective, self._n_trials)
-        best = functools.reduce(lambda x, y: x if x.bests(y) else y)
-        summary = self._experiment.test(overrides=best.params)
+        self._experiment.to_best()
+        summary = self._experiment.train(for_validation=False)
         return summary, summaries
 
 
@@ -512,23 +532,48 @@ class Config:
     path: str = 'blueprints/'
 
 
-def create_runner(config: Config, study_cls: typing.Type[OptunaStudy]):
+class HydraStudyConfig(object):
 
-    @hydra.main(config_path=config.path, config_name=config.name)
-    def _(cfg : DictConfig):
-
-        hydra.utils.call(
-            cfg.paths
-        )
-        params = convert_params(cfg.params)
-        study = study_cls(params)
-        if bool(cfg.full_study):
-            return OptunaStudy(study, cfg.name, cfg.n_trials, cfg.to_maximize)
-        # else:
-        #     return StudyRunner(study)
-    
-    return _()
+    def __init__(self, config: Config):
+        
+        @hydra.main(config_path=config.path, config_name=config.name)
+        def _(cfg : DictConfig):
             
+            hydra.utils.call(
+                cfg.paths
+            )
+            return cfg
+        
+        self._cfg = _()
+    
+    def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
+
+        params = convert_params(self._cfg.params)
+        experiment = experiment_cls(**params)
+        return OptunaStudy(experiment, self._cfg.name, self._cfg.n_trials, self._cfg.to_maximize )
+
+    def create_experiment(self, experiment_cls: typing.Type[OptunaExperiment]):
+        params = convert_params(self._cfg.params)
+        return experiment_cls(**params)
+
+
+# def create_runner(config: Config, study_cls: typing.Type[OptunaStudy]):
+
+#     @hydra.main(config_path=config.path, config_name=config.name)
+#     def _(cfg : DictConfig):
+
+#         hydra.utils.call(
+#             cfg.paths
+#         )
+#         params = convert_params(cfg.params)
+#         study = study_cls(params)
+#         if bool(cfg.full_study):
+#             return OptunaStudy(study, cfg.name, cfg.n_trials, cfg.to_maximize)
+#         # else:
+#         #     return StudyRunner(study)
+    
+#     return _()
+
 
 # class StudyRunner(object):
     
