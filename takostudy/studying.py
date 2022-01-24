@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod, abstractproperty
 from dataclasses import dataclass, field
 from multiprocessing.sharedctypes import Value
+from attr import fields
 import optuna
 import typing
 import hydra
@@ -355,6 +356,13 @@ def convert_params(trial_params: dict):
     }
 
 
+
+# sub can be optuna params
+# sub can be tunablefactory
+
+def is_trial_selector(value) -> bool:
+    pass
+
 @dataclass
 class OptunaParams(object):
 
@@ -369,11 +377,21 @@ class OptunaParams(object):
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, overrides):
-        return cls(**{
-            k: ParamMap[params['type']].from_dict(params)
-            for k, params in overrides.items()
-        })
+    def from_dict(cls, overrides: dict):
+        data_fields = {item.name: item for item in fields(cls)}
+
+        updated = dict()
+        for k, v in overrides.items():
+            if issubclass(data_fields[k].type, OptunaParams):
+                updated[k] = data_fields[k].type.from_dict(
+                    v
+                )
+            elif is_trial_selector(v):
+                updated[k] = ParamMap[v['type']].from_dict(v)
+            else:
+                updated[k] = v
+        
+        return cls(**updated)
     
     def define(self, **kwargs):
 
@@ -385,6 +403,10 @@ class OptunaParams(object):
         for k, v in params.items():
             if isinstance(v, TrialSelector):
                 args[k] = v.suggest(path, trial)
+            elif isinstance(v, OptunaParams): # and issubclass(v, OptunaParams):
+                # should i add a "sub path?"
+                args[k] = v.sample(path, trial)
+                
         return self.__class__(**args)
     
     @property
@@ -436,7 +458,7 @@ class Summary(object):
 class Experiment(ABC):
 
     @abstractmethod
-    def train(self, for_validation: bool=True) -> Summary:
+    def run(self) -> Summary:
         raise NotImplementedError
 
 
