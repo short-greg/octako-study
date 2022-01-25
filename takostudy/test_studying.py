@@ -1,15 +1,7 @@
 from dataclasses import dataclass
-import random
-import typing
-from unittest.mock import MagicMock, Mock
-
+from unittest.mock import Mock
 from dataclasses import field
-
-from torch import zero_
 from . import studying
-import optuna
-from optuna.storages import InMemoryStorage
-import pytest
 
 
 class TestDefault:

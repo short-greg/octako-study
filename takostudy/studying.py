@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod, abstractproperty
-from dataclasses import dataclass, field, fields
-from multiprocessing.sharedctypes import Value
+from dataclasses import dataclass, fields
 import optuna
 import typing
 import hydra
@@ -406,7 +405,6 @@ class OptunaParams(object):
         for k, v in params.items():
             if isinstance(v, TrialSelector):
                 args[k] = v.suggest(trial, path)
-                print('Suggesting ', args[k])
             elif isinstance(v, OptunaParams): # and issubclass(v, OptunaParams):
                 # TODO: should i add a "sub path?"
                 args[k] = v.suggest(trial, path)
