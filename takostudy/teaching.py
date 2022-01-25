@@ -14,7 +14,7 @@ from torch.types import Storage
 from tqdm import tqdm
 from dataclasses import dataclass, is_dataclass
 import pandas as pd
-from torch.utils.data import  DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 
 @dataclass
@@ -166,14 +166,14 @@ class Teach(Action):
     def act(self):
         if self.dataset.val is None:
             return Status.FAILURE
-        self._setup_iter()
+        if not self._iter:
+            self._setup_iter()
 
         try:
             x, t = next(self._iter)
         except StopIteration:
             self._iter = None
             return Status.SUCCESS
-        
         result = self.perform_action(x, t)
 
         self.results.val.add_result(self._name, self.progress.val.cur, result)
@@ -194,7 +194,7 @@ class Validate(Teach):
 
 class Trainer(Tree):
 
-    n_batches = var_(1)
+    n_epochs = var_(1)
     batch_size = var_(32)
     validation_dataset = var_()
     training_data = var_()
@@ -208,81 +208,106 @@ class Trainer(Tree):
 
         @task
         class execute(Sequence):
+
             @task
             @until
+            @neg
             class epoch(Sequence):
 
-                train = action('train')
+                train = action('training')
                 @task
                 class validation(Fallback):
-                    can_skip = condf('needs_validation') << neg
-                    validate = action('validate')
-                stop = condf('stop')
-                
+                    can_skip = condf('needs_validation') << loads(neg)
+                    validate = action('validation')
+                to_continue = condf('_to_continue', STORE_REF)
+            
+            output1 = actionf("output", "SUCCESSFULLY TrAINED!")
             @task
-            class testing(Sequence):
-                can_skip = neg() << condf('needs_validation')
-                test = action('test')
+            class testing(Fallback):
+                can_skip = condf('needs_testing') << loads(neg)
+                test = action('testing')
+            output2 = actionf('output', 'Output 1')
     
             complete = actionf('_complete')
 
     def __init__(self, name: str):
         super().__init__(name)
-        self._progress = Var(ProgressRecorder())
+ 
+        progress = ProgressRecorder(1)
+        self._progress = Var(progress)
         self._results = Var(Results())
 
         self.training = Train(
-            "Trainer", results=Shared(self._results), 
+            "Trainer", 
             dataset=Shared(self.training_data), progress=Shared(self._progress),
             learner=Shared(self.learner), batch_size=Shared(self.batch_size)
         )
         self.validation = Validate(
-            "Validator", results=Shared(self._results), 
+            "Validator", 
             dataset=Shared(self.validation_data), progress=Shared(self._progress),
             learner=Shared(self.learner), batch_size=Shared(self.batch_size)
         )
         self.testing = Validate(
-            "Tester", results=Shared(self._results), 
+            "Tester",
             dataset=Shared(self.testing_data), progress=Shared(self._progress),
             learner=Shared(self.learner), batch_size=Shared(self.batch_size)
         )
 
+    def output(self, number):
+        return Status.SUCCESS
+
     def reset(self):
+        super().reset()
         self._completed = False
+        self.learner.val = None
 
     def needs_validation(self):
         return self.validation.is_prepared()
 
     def needs_testing(self):
         return self.testing.is_prepared()
+    
+    def run(self, learner, to_evaluate: str='Validation'):
+        self.reset()
+        self.learner.val = learner
+        status = None
+        while True:
+            status = self.tick()
+            if status.done:
+                break
+        
+        return status
+    
+    def results(self):
+        pass
 
     def _to_continue(self, store: Storage):
-        cur_batch = store.get_or_add('cur_batch', 0)
+        cur_epoch = store.get_or_add('n_epochs', 0)
 
-        if cur_batch.val < self.n_batches.val:
-            cur_batch.val += 1
+        if cur_epoch.val < self.n_epochs.val:
+            cur_epoch.val += 1
             return True
-
         return False
     
     def _complete(self):
-        self._completed = True
+        self._progress.val.complete()
+        return Status.SUCCESS
 
     def _update_progress_bar(self, store: Storage):
         
         pbar = store.get_or_add('pbar', recursive=False)
 
-        if self._progress.completed:
+        if self._progress.val.completed:
             if not pbar.is_empty(): 
-                pbar.close()
+                pbar.val.close()
                 pbar.empty()
             return Status.SUCCESS
         
-        if self._progress.cur is None:
+        if self._progress.val.cur is None:
             return Status.RUNNING
         if pbar.is_empty():
-            pbar.val = tqdm(total=self._progress.cur.total_iterations)
-        pbar.val.set_description_str(self._progress.cur.name)
+            pbar.val = tqdm(total=self._progress.val.cur.total_iterations)
+        pbar.val.set_description_str(self._progress.val.cur.name)
         pbar.val.update(1)
 
         # self.pbar.total = lecture.n_lesson_iterations

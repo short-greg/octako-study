@@ -1,11 +1,11 @@
 from sango.nodes import Status
 import torch
 
-from octako.learners import Learner, Validator
+from tako.learners import Learner, Validator
 from . import teaching
 import pytest
 from torch.utils.data import TensorDataset
-
+from torch import nn
 
 
 class TestResults:
@@ -65,7 +65,7 @@ class TestResults:
 class LearnerTest(Learner, Validator):
 
     def __init__(self):
-        pass
+        nn.Module.__init__(self)
 
     def learn(self, x, t):
         return {'loss': torch.tensor(1.0)}
@@ -159,49 +159,54 @@ class TestTest:
         assert teach.tick() == Status.RUNNING
 
 
-class TestTrainer:
+def create_trainer():
 
-    def _create_teach(self):
+    dataset = TensorDataset(
+        torch.zeros(1, 2), torch.zeros(1)
+    )
 
-        dataset = TensorDataset(
-            torch.zeros(3, 2), torch.zeros(3)
-        )
+    return teaching.Trainer(
+        name='Trainer',
+        validation_data=dataset, 
+        training_data=dataset,
+        testing_data=None,
+        learner=LearnerTest(),
+        batch_size=128, 
+        n_epochs=1
 
-        return teaching.Trainer(
-            name='Trainer',
-            results=teaching.Results(), 
-            validation_dataset=dataset, 
-            training_dataset=dataset,
-            learner=LearnerTest(),
-            batch_size=32, 
-            progress=teaching.ProgressRecorder(1)
+    )
 
-        )
+def create_learner():
+
+    class Learn(Learner, Validator):
+
+        def __init__(self):
+            nn.Module.__init__(self)
+
+        def learn(self, x, t):
+            return torch.tensor(0.0)
+        
+        def test(self, x, t):
+            return torch.tensor(0.0)
+    return Learn()
+
+
+class TestValidationTrainer:
 
     def test_teach_init_works(self):
-        teach = self._create_teach()
+        teach = create_trainer()
         assert isinstance(teach, teaching.Trainer)
 
     def test_teach_tick_returns_running(self):
-        teach = self._create_teach()
+        teach = create_trainer()
         assert teach.tick() == Status.RUNNING
 
     def test_teach_tick_returns_succcess(self):
-        teach = self._create_teach()
-        teach.tick()
-        teach.tick()
-        teach.tick()
-        teach.tick()
-        teach.tick()
-        teach.tick()
-        teach.tick()
-        assert teach.tick() == Status.SUCCESS
+        teach = create_trainer()
+        assert teach.run(learner=LearnerTest()) == Status.SUCCESS
 
-    # def test_teach_tick_returns_running_after_reset(self):
-    #     teach = self._create_teach()
-    #     teach.tick()
-    #     teach.tick()
-    #     teach.reset()
-    #     assert teach.tick() == Status.RUNNING
-
-
+    def test_teach_tick_returns_running_after_reset(self):
+        teach = create_trainer()
+        teach.run(learner=LearnerTest())
+        teach.reset()
+        assert teach.tick() == Status.RUNNING
