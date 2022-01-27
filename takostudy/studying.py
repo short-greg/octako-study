@@ -405,8 +405,7 @@ class OptunaParams(object):
         for k, v in params.items():
             if isinstance(v, TrialSelector):
                 args[k] = v.suggest(trial, path)
-            elif isinstance(v, OptunaParams): # and issubclass(v, OptunaParams):
-                # TODO: should i add a "sub path?"
+            elif isinstance(v, OptunaParams):
                 args[k] = v.suggest(trial, path)
             else:
                 args[k] = v
