@@ -72,12 +72,20 @@ class ProgressRecorder(object):
     def completed(self):
         return self._completed
     
-    def adv_epoch(self, total_iterations=0):
-        self.cur.cur_epoch += 1
-        self.cur.total_iterations = total_iterations
+    def adv_epoch(self, total_iterations=0, name: str=None):
+        if name is None:
+            progress = self.cur
+        else:
+            progress = self._progresses[name]
+        
+        progress.cur_epoch += 1
+        progress.total_iterations = total_iterations
 
     def adv_iter(self):
         self.cur.cur_iteration += 1
+    
+    def contains(self, name: str):
+        return name in self._progresses
 
 
 class Results(object):
@@ -101,7 +109,6 @@ class Results(object):
         self._result_cols.update(
             set(results.keys())
         )
-
         self.df = self.df.append({
             self.teacher_col: teacher,
             self.score_col: score,
@@ -148,6 +155,9 @@ class Score(Action):
     def act(self):
 
         results: Results = self.results.val
+        print(results.df)
+        if results.teacher_col not in set(results.df.columns):
+            return Status.FAILURE
         sub = results.df[results.df[results.teacher_col] == self._score_col]
         if self._score_last:
             # TODO: Change this so it does not use a specific field literal
@@ -240,7 +250,6 @@ class DataLoaderIter(DatasetIterator):
         return self._is_start
 
 
-
 class Teach(Action):
     
     results = var_[Results]()
@@ -249,14 +258,14 @@ class Teach(Action):
     learner = var_()
 
     def _update_progress(self):
-        n_iterations = len(self.data_iter)
+        n_iterations = len(self.data_iter.val)
 
         if not self.progress.val.contains(self._name):
             self.progress.val.add(
-                self._name, total_iterations=len(self.data_iter), switch=True
+                self._name, total_iterations=len(self.data_iter.val), switch=True
             )
         elif self.data_iter.val.is_start():
-            self.progress.val.adv_epoch(self._name, n_iterations)
+            self.progress.val.adv_epoch(n_iterations, self._name)
         
         self.progress.val.switch(self._name)
 
@@ -266,7 +275,8 @@ class Teach(Action):
 
     def reset(self):
         super().reset()
-        self.data_iter.val.reset()
+        if self.data_iter.val is not None:
+            self.data_iter.val.reset()
     
     def is_prepared(self):
         return self.data_iter.val is not None
@@ -353,7 +363,7 @@ class Trainer(Tree):
         progress = ProgressRecorder(1)
         self._progress = Var(progress)
         self._results = Var(Results())
-        self.validation = self._create_teacher("Training", Train, self.training_data)
+        self.training = self._create_teacher("Training", Train, self.training_data)
         self.validation = self._create_teacher("Validation", Validate, self.validation_data)
         self.testing = self._create_teacher("Testing", Validate, self.testing_data)
         self.score_training = self._create_scorer("Training")
@@ -364,12 +374,12 @@ class Trainer(Tree):
         return teacher_cls(
             name,
             data_iter=Shared(data), progress=Shared(self._progress),
-            learner=Shared(self.learner), batch_size=Shared(self.batch_size)
+            learner=Shared(self.learner)
         )
     
     def _create_scorer(self, name):
         return Score(
-            name, True, results=Shared(self.results), 
+            name, True, results=Shared(self._results), 
             score=Shared(self.score), scored_by=Shared(self.scored_by)
         )
 
