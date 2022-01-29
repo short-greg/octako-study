@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod, abstractproperty
 import dataclasses
+from functools import partial
 import typing
-from attr import field
 from omegaconf import ValidationError
 from sango.nodes import (
     STORE_REF, Action, Status, Fallback, Var, Shared, Tree, Sequence, Parallel, 
@@ -11,7 +11,7 @@ from sango.vars import ref_
 from torch.types import Storage
 
 from tqdm import tqdm
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass, is_dataclass, field
 import pandas as pd
 from torch.utils.data import DataLoader
 import math
@@ -125,7 +125,7 @@ class TeacherData:
     data_iter: DataLoaderIter
     learner: Learner
     score_col: str
-    progress: TeacherProgress = field(TeacherProgress(0))
+    progress: TeacherProgress = field(default_factory=partial(TeacherProgress, 0))
 
 
 class Course:
@@ -142,7 +142,7 @@ class Course:
         self._cur = None
         self._completed = False
         self._df = pd.DataFrame()
-        self._result_cols = dict()
+        self._result_cols = set()
     
     def validate(self):
         if self._completed is True:
@@ -153,7 +153,7 @@ class Course:
     def switch_teacher(self, teacher: str):
         
         if not teacher in self._teacher_data:
-            raise ValueError("Teacher {teacher} is not a part of this course")
+            raise ValueError(f"Teacher {teacher} is not a part of this course")
         if self._completed:
             raise ValueError("Course has already been completed.")
         self._cur = teacher
@@ -173,11 +173,15 @@ class Course:
 
     def adv_iter(self, results: dict):
         self.validate()
-        self.cur.progress.n_iterations += 1
+        if self.cur.progress.n_iterations is None:
+            self.cur.progress.n_iterations = 0
+        else:
+            self.cur.progress.n_iterations += 1
 
         self._result_cols.update(
-            set(results.keys)
+            set(results.keys())
         )
+        self.cur.data_iter.adv()
         self._df = self.df.append({
             "Teacher": self._cur,
             **self.cur.progress.to_dict(),
@@ -192,10 +196,12 @@ class Course:
             self.cur.score_col
         ].mean()
 
+    @property
     def learner(self):
         self.validate()
         return self._teacher_data[self._cur].learner
 
+    @property
     def data(self):
         self.validate()
         return self._teacher_data[self._cur].data_iter.cur
@@ -210,6 +216,10 @@ class Course:
         self._completed = True
         self._cur = None
     
+    @property
+    def completed(self):
+        return self._completed
+
     @property
     def df(self):
         return self._df
@@ -258,7 +268,7 @@ class Teach(Action):
         return self._name in self.course.val
 
     def act(self):
-        course: Course = self.course
+        course: Course = self.course.val
         course.switch_teacher(self._name)
         if course.data is None:
             course.adv_epoch()
@@ -275,13 +285,13 @@ class Teach(Action):
 class Train(Teach):
 
     def perform_action(self, x, t):
-        return self.learner.val.learn(x, t)
+        return self.course.val.learner.learn(x, t)
 
 
 class Validate(Teach):
     
     def perform_action(self, x, t):
-        return self.learner.val.test(x, t)
+        return self.course.val.learner.test(x, t)
 
 
 class Trainer(Tree):
@@ -345,10 +355,10 @@ class Trainer(Tree):
     def needs_testing(self):
         return self.testing.is_prepared()
     
-    def run(self, learner, to_evaluate: str='Validation'):
+    def run(self, course, to_evaluate: str='Validation'):
         self.reset()
-        self.learner.val = learner
         status = None
+        self.course.val = course
         while True:
             status = self.tick()
             if status.done:

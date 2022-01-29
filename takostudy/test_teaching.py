@@ -53,60 +53,6 @@ class TestDataLoaderIterator:
         assert dataset.pos == 1
 
 
-class TestResults:
-
-    def test_results_with_no_data(self):
-
-        results = teaching.Results()
-        assert len(results.df) == 0
-
-    def test_results_with_one_result(self):
-
-        results = teaching.Results()
-        progress = teaching.Progress("x", 1)
-        results.add_result(
-            "Validator", progress, {'x': 2}, score=0.0
-        )
-        assert len(results.df) == 1
-
-    def test_results_with_two_results(self):
-
-        results = teaching.Results()
-        progress = teaching.Progress("x", 1)
-        results.add_result(
-            "Trainer", progress, {'x': 3, 'y': 3}, score=1.0
-        )
-        results.add_result(
-            "Trainer", progress, {'x': 1}, score=1.0
-        )
-        assert len(results.df) == 2
-
-    def test_results_with_two_result_columns(self):
-
-        results = teaching.Results()
-        progress = teaching.Progress("x", 1)
-        results.add_result(
-            "Trainer", progress, {'x': 3, 'y': 3}, score=2.0
-        )
-        results.add_result(
-            "Trainer", progress, {'x': 1}, score=2.0
-        )
-        cols = results.result_cols
-        assert 'x' in cols
-        assert 'y' in cols
-
-    def test_progress_cols_are_correct(self):
-
-        results = teaching.Results()
-        progress = teaching.Progress("x", 1)
-        results.add_result(
-            "Trainer", progress, {'x': 3, 'y': 3}, score=3.0
-        )
-        cols = results.progress_cols
-        assert 'name' in cols
-        assert 'total_epochs' in cols
-
-
 class LearnerTest(Learner, Validator):
 
     def __init__(self):
@@ -119,36 +65,106 @@ class LearnerTest(Learner, Validator):
         return {'loss': torch.tensor(1.0)}
 
 
+class TestCourse:
+
+    def create_course(self):
+        dataset = teaching.DataLoaderIter(DataLoader(TensorDataset(
+            torch.zeros(4, 2), torch.zeros(4)
+        ), batch_size=2))
+        return teaching.Course([teaching.TeacherData("Validation", dataset, LearnerTest(), 'Validation')])
+
+    def test_results_with_no_data(self):
+        course = self.create_course()
+        assert len(course.df) == 0
+
+    def test_results_with_one_result(self):
+        course = self.create_course()
+        course.switch_teacher('Validation')
+        course.adv_iter(
+            {'x': 2}
+        )
+        assert len(course.df) == 1
+
+    def test_results_with_two_results(self):
+        course = self.create_course()
+        course.switch_teacher('Validation')
+        course.adv_iter(
+            {'x': 2}
+        )
+        course.adv_iter(
+            {'x': 1}
+        )
+        assert len(course.df) == 2
+
+    def test_results_with_two_result_columns(self):
+        course = self.create_course()
+        course.switch_teacher('Validation')
+        course.adv_iter(
+            {'x': 2, 'y': 3}
+        )
+        course.adv_iter(
+            {'x': 1, 'y': 4}
+        )
+        cols = course.df.columns
+        assert 'x' in cols
+        assert 'y' in cols
+
+    def test_data_is_correct(self):
+        course = self.create_course()
+        course.switch_teacher('Validation')
+        x, _ = course.data
+        assert isinstance(x, torch.Tensor)
+
+    def test_progress_cols_are_correct(self):
+        course = self.create_course()
+        course.switch_teacher('Validation')
+        course.adv_iter(
+            {'x': 2, 'y': 3}
+        )
+        course.adv_iter(
+            {'x': 1, 'y': 4}
+        )
+        cols = course.df.columns
+        assert 'cur_iter' in cols
+        assert 'n_epochs' in cols
+
+
 class TestTrain:
 
     def _create_teach(self):
 
         dataset = teaching.DataLoaderIter(DataLoader(TensorDataset(
-            torch.zeros(3, 2), torch.zeros(3)
-        ), batch_size=32))
+            torch.zeros(4, 2), torch.zeros(4)
+        ), batch_size=2))
+        validation = teaching.TeacherData("Validation", dataset, LearnerTest(), 'Validation')
+        training = teaching.TeacherData("Training", dataset, LearnerTest(), 'Training')
+        course = teaching.Course(
+            [validation, training]
+        )
 
         return teaching.Train(
-            name='str', 
-            results=teaching.Results(), 
-            data_iter=dataset, learner=LearnerTest(), 
-            progress=teaching.ProgressRecorder(10)
+            name='Training',
+            course=course
+        ), teaching.Validate(
+            name='Validation',
+            course=course
         )
 
     def test_teach_init_works(self):
-        teach = self._create_teach()
+        teach, _ = self._create_teach()
         assert isinstance(teach, teaching.Teach)
 
     def test_teach_tick_returns_running(self):
-        teach = self._create_teach()
+        teach, _ = self._create_teach()
         assert teach.tick() == Status.RUNNING
 
     def test_teach_tick_returns_succcess(self):
-        teach = self._create_teach()
+        teach, _ = self._create_teach()
         teach.tick()
         assert teach.tick() == Status.SUCCESS
 
     def test_teach_tick_returns_running_after_reset(self):
-        teach = self._create_teach()
+        teach, val = self._create_teach()
         teach.tick()
         teach.tick()
         teach.reset()
@@ -160,14 +176,17 @@ class TestTest:
     def _create_teach(self):
 
         dataset = teaching.DataLoaderIter(DataLoader(TensorDataset(
-            torch.zeros(3, 2), torch.zeros(3)
-        ), batch_size=32))
+            torch.zeros(4, 2), torch.zeros(4)
+        ), batch_size=2))
+        validation = teaching.TeacherData("Validation", dataset, LearnerTest(), 'Validation')
+        training = teaching.TeacherData("Training", dataset, LearnerTest(), 'Training')
+        course = teaching.Course(
+            [validation, training]
+        )
 
         return teaching.Validate(
-            name='str', 
-            results=teaching.Results(), 
-            data_iter=dataset, learner=LearnerTest(), 
-            progress=teaching.ProgressRecorder(10)
+            name='Validation',
+            course=course
         )
 
     def test_teach_init_works(self):
@@ -194,17 +213,23 @@ class TestTest:
 def create_trainer():
 
     dataset = teaching.DataLoaderIter(DataLoader(TensorDataset(
-        torch.zeros(1, 2), torch.zeros(1)
-    ), batch_size=32))
+        torch.zeros(4, 2), torch.zeros(4)
+    ), batch_size=2))
+    validation = teaching.TeacherData("Validation", dataset, LearnerTest(), 'Validation')
+    training = teaching.TeacherData("Training", dataset, LearnerTest(), 'Training')
+    course = teaching.Course(
+        [validation, training]
+    )
+
+    training = teaching.Trainer(
+        name='Trainer',
+        course=course
+    )
 
     return teaching.Trainer(
         name='Trainer',
-        validation_data=dataset, 
-        training_data=dataset,
-        testing_data=None,
-        learner=LearnerTest(),
+        course=course, 
         n_epochs=1
-
     )
 
 
@@ -233,12 +258,12 @@ class TestValidationTrainer:
         teach = create_trainer()
         assert teach.tick() == Status.RUNNING
 
-    def test_teach_tick_returns_succcess(self):
-        teach = create_trainer()
-        assert teach.run(learner=LearnerTest()) == Status.FAILURE
+#     def test_teach_tick_returns_succcess(self):
+#         teach = create_trainer()
+#         assert teach.run(learner=LearnerTest()) == Status.FAILURE
 
-    def test_teach_tick_returns_running_after_reset(self):
-        teach = create_trainer()
-        teach.run(learner=LearnerTest())
-        teach.reset()
-        assert teach.tick() == Status.RUNNING
+#     def test_teach_tick_returns_running_after_reset(self):
+#         teach = create_trainer()
+#         teach.run(learner=LearnerTest())
+#         teach.reset()
+#         assert teach.tick() == Status.RUNNING
