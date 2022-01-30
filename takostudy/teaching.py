@@ -110,6 +110,7 @@ class DataLoaderIter(DatasetIterator):
 
 @dataclass
 class TeacherProgress:
+
     n_epochs: int
     n_iterations: int=None
     cur_iter: int=None
@@ -117,7 +118,14 @@ class TeacherProgress:
 
     def to_dict(self):
         return dataclasses.asdict(self)
+    
+    @property
+    def CUR_EPOCH_COL(self):
+        return 'cur_epoch'
 
+    @property
+    def N_EPOCHS_COL(self):
+        return 'n_epochs'
 
 @dataclass
 class TeacherData:
@@ -159,7 +167,9 @@ class Course:
         self._cur = teacher
 
     @property
-    def cur(self):
+    def cur(self) -> TeacherData:
+        if self._cur is None:
+            return None
         return self._teacher_data[self._cur]
 
     def adv_epoch(self):
@@ -183,17 +193,22 @@ class Course:
         )
         self.cur.data_iter.adv()
         self._df = self.df.append({
-            "Teacher": self._cur,
+            self.TEACHER_COL: self._cur,
             **self.cur.progress.to_dict(),
             **results
         }, ignore_index=True)
 
     def eval(self, teacher: str=None):
+        if self._cur is None and teacher is None:
+            raise ValueError(f'Must set the current teacher or pass in teacher name')
         teacher = teacher or self._cur
-        epoch = self.cur.progress.cur_epoch
+        teacher_data = self._teacher_data[teacher]
+        progress = teacher_data.progress
+        epoch = progress.cur_epoch
         df = self._df
-        return df[df[self.TEACHER_COL] == teacher & df[epoch] == epoch][
-            self.cur.score_col
+
+        return df[(df[self.TEACHER_COL] == teacher) & (df[progress.CUR_EPOCH_COL] == epoch)][
+            teacher_data.score_col
         ].mean()
 
     @property
@@ -245,7 +260,8 @@ class Score(Action):
 
     def act(self):
         score = self.course.val.eval(self.teacher.val)
-        if math.isnan(self.score.val):
+
+        if math.isnan(score):
             return Status.FAILURE
         
         self.score.val = score
@@ -270,7 +286,7 @@ class Teach(Action):
     def act(self):
         course: Course = self.course.val
         course.switch_teacher(self._name)
-        if course.data is None:
+        if course.data is None or course.cur.progress.cur_epoch is None:
             course.adv_epoch()
 
         x, t = course.data
@@ -318,7 +334,7 @@ class Trainer(Tree):
                 class validation(Fallback):
                     can_skip = condf('needs_validation') << loads(neg)
                     validate = action('validation')
-                to_continue = condf('_to_continue', STORE_REF)
+                to_continue = condf('_to_continue')
             
             @task
             class testing(Fallback):
@@ -341,12 +357,13 @@ class Trainer(Tree):
         self.validation = Validate("Validation", course=self.course)
         self.testing = Validate("Test", course=self.course)
         self.score_training = Score(
-            "Training", score=Shared(self.score), 
+            'Training Scorer',
+            teacher="Training", score=Shared(self.score), 
             scored_by=Shared(self.scored_by), course=self.course
         )
-        self.score_validation = Score("Validation", score=Shared(self.score), 
+        self.score_validation = Score('Validation Scorer', teacher="Validation", score=Shared(self.score), 
             scored_by=Shared(self.scored_by), course=self.course)
-        self.score_testing = Score("Testing", score=Shared(self.score), 
+        self.score_testing = Score('Testing Scorer', teacher="Validation", score=Shared(self.score), 
             scored_by=Shared(self.scored_by), course=self.course)
 
     def needs_validation(self):
@@ -376,7 +393,7 @@ class Trainer(Tree):
         return False
     
     def _complete(self):
-        self._progress.val.complete()
+        self.course.val.complete()
         return Status.SUCCESS
 
     def _update_progress_bar(self, store: Storage):

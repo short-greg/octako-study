@@ -59,10 +59,10 @@ class LearnerTest(Learner, Validator):
         nn.Module.__init__(self)
 
     def learn(self, x, t):
-        return {'loss': torch.tensor(1.0)}
+        return {'Loss': torch.tensor(1.0), 'Validation': torch.tensor(1.0)}
     
     def test(self, x, t):
-        return {'loss': torch.tensor(1.0)}
+        return {'Loss': torch.tensor(1.0), 'Validation': torch.tensor(1.0)}
 
 
 class TestCourse:
@@ -221,16 +221,11 @@ def create_trainer():
         [validation, training]
     )
 
-    training = teaching.Trainer(
-        name='Trainer',
-        course=course
-    )
-
     return teaching.Trainer(
-        name='Trainer',
+        name='Train',
         course=course, 
         n_epochs=1
-    )
+    ), course
 
 
 def create_learner():
@@ -251,19 +246,19 @@ def create_learner():
 class TestValidationTrainer:
 
     def test_teach_init_works(self):
-        teach = create_trainer()
+        teach, _ = create_trainer()
         assert isinstance(teach, teaching.Trainer)
 
     def test_teach_tick_returns_running(self):
-        teach = create_trainer()
+        teach, _ = create_trainer()
         assert teach.tick() == Status.RUNNING
 
-#     def test_teach_tick_returns_succcess(self):
-#         teach = create_trainer()
-#         assert teach.run(learner=LearnerTest()) == Status.FAILURE
+    def test_teach_tick_returns_succcess(self):
+        teach, course = create_trainer()
+        assert teach.run(course) == Status.SUCCESS
 
-#     def test_teach_tick_returns_running_after_reset(self):
-#         teach = create_trainer()
-#         teach.run(learner=LearnerTest())
-#         teach.reset()
-#         assert teach.tick() == Status.RUNNING
+    def test_teach_tick_returns_running_after_reset(self):
+        teach, course = create_trainer()
+        teach.run(course=course)
+        teach.reset()
+        assert teach.tick() == Status.RUNNING
