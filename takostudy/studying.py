@@ -404,7 +404,10 @@ class OptunaParams(object):
         params = asdict_shallow(self)
         for k, v in params.items():
             if isinstance(v, TrialSelector):
-                args[k] = v.suggest(trial, path)
+                if trial is None:
+                    args[k] = v.default
+                else:
+                    args[k] = v.suggest(trial, path)
             elif isinstance(v, OptunaParams):
                 args[k] = v.suggest(trial, path)
             else:
