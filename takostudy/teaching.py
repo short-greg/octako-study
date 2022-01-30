@@ -359,12 +359,12 @@ class Trainer(Tree):
         self.score_training = Score(
             'Training Scorer',
             teacher="Training", score=Shared(self.score), 
-            scored_by=Shared(self.scored_by), course=self.course
+            scored_by=Shared(self.scored_by), course=Shared(self.course)
         )
         self.score_validation = Score('Validation Scorer', teacher="Validation", score=Shared(self.score), 
-            scored_by=Shared(self.scored_by), course=self.course)
+            scored_by=Shared(self.scored_by), course=Shared(self.course))
         self.score_testing = Score('Testing Scorer', teacher="Validation", score=Shared(self.score), 
-            scored_by=Shared(self.scored_by), course=self.course)
+            scored_by=Shared(self.scored_by), course=Shared(self.course))
 
     def needs_validation(self):
         return self.validation.is_prepared()
