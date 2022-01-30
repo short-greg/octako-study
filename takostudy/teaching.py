@@ -253,9 +253,8 @@ class Score(Action):
     scored_by = var_[str]()
     teacher = var_[str]()
 
-    def __init__(self, score_col: str, score_last: bool=True):
+    def __init__(self, score_last: bool=True):
         super().__init__()
-        self._score_col = score_col
         self._score_last = score_last
 
     def act(self):
