@@ -355,16 +355,15 @@ def convert_params(trial_params: dict):
     }
 
 
-
 # sub can be optuna params
 # sub can be tunablefactory
 
 def asdict_shallow(obj):
     return dict((field.name, getattr(obj, field.name)) for field in fields(obj))
 
-def is_trial_selector(value) -> bool:
-    
+def is_trial_selector(value) -> bool:    
     return isinstance(value, dict) and 'type' in value
+
 
 @dataclass
 class OptunaParams(object):
