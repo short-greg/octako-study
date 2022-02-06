@@ -9,6 +9,7 @@ import optuna
 import typing
 import hydra
 from omegaconf import DictConfig
+from pytest import param
 
 from takostudy.teaching import Train
 
@@ -30,12 +31,16 @@ class TrialSelector(ABC):
 
     def __init__(self, name, default):
 
-        self.default = default
+        self._default = default
         self._name = name
     
     @property
     def name(self):
         return self._name
+
+    @property
+    def default(self):
+        return self._default
 
     def select(self, trial: optuna.Trial=None, path: str='', best: dict=None):
 
@@ -123,6 +128,10 @@ class ExpInt(TrialSelector):
         self._high = high
         self._base = base
     
+    @property
+    def default(self):
+        return self._base ** self._default
+
     def suggest(self, trial: optuna.Trial, path: str):
         return self._base ** trial.suggest_int(
             self.cat_path(path) , self._low, self._high
@@ -473,10 +482,11 @@ class OptunaExperiment(Experiment):
     class Params(OptunaParams):
         pass
 
-    def __init__(self, param_overrides: dict):
+    def __init__(self, param_overrides: dict=None):
 
+        param_overrides = param_overrides or {}
         self._params_base = self.Params.from_dict(**param_overrides)
-        self._params = None
+        self._params = self._params_base.suggest()
         self._trials: typing.List[Summary] = []
         self._best_index = None
     
@@ -490,7 +500,7 @@ class OptunaExperiment(Experiment):
     def params_ready(self):
         return self._params is not None
 
-    def resample(self, trial, path: str=''):
+    def resample(self, trial=None, path: str=''):
         self._params = self._params_base.suggest(trial, path)
 
     def define_params(self, values: dict):
@@ -503,8 +513,6 @@ class OptunaExperiment(Experiment):
     
     def trial(self) -> Summary:
 
-        if self._params is None:
-            raise ValueError('Params have not been set yet. Must set them or resample')
         summary = self.run()
         self._trials.append(summary)
         if self._best_index is None or summary.bests(self._trials[self._best_index]):

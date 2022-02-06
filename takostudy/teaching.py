@@ -15,6 +15,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 import math
 from tako.learners import Learner
+import torch
 
 
 class ShowProgress(Action):
@@ -190,7 +191,7 @@ class Course:
             cur.progress.cur_epoch = 0 
         else: cur.progress.cur_epoch += 1
 
-    def adv_iter(self, results: dict):
+    def adv_iter(self, results: typing.Dict[str, torch.Tensor]):
         self.validate()
         cur = self.cur
         if cur.progress.n_iterations is None:
@@ -202,6 +203,7 @@ class Course:
             set(results.keys())
         )
         cur.data_iter.adv()
+        results = {k: v.detach().cpu().numpy() for k, v in results.items()}
         self._df = self.df.append({
             self.MATERIAL_COL: self._cur,
             'n_epochs': self._n_epochs,
