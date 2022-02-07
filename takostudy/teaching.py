@@ -18,13 +18,6 @@ from tako.learners import Learner
 import torch
 
 
-class ShowProgress(Action):
-    
-    progress = var_()
-
-    def act(self):
-        pass
-
 
 class DatasetIterator(ABC):
     """For conveniently iterating over a dataset in a behavior tree
@@ -176,6 +169,10 @@ class Course:
         if self._cur is None:
             return None
         return self._materials[self._cur]
+    
+    @property
+    def cur_iteration(self):
+        return self.cur.progress.cur_iter
 
     def progress(self, material: str=None):
         material = material or self._cur
@@ -195,16 +192,17 @@ class Course:
         self.validate()
         cur = self.cur
         if cur.progress.n_iterations is None:
-            cur.progress.n_iterations = 0
+            cur.progress.n_iterations = len(cur.data_iter)
+        if cur.progress.cur_iter is None:
+            cur.progress.cur_iter = 0
         else:
-            cur.progress.n_iterations += 1
-
+            cur.progress.cur_iter += 1
         self._result_cols.update(
             set(results.keys())
         )
         cur.data_iter.adv()
         results = {k: v.detach().cpu().numpy() for k, v in results.items()}
-        self._df = self.df.append({
+        self._df = self._df.append({
             self.MATERIAL_COL: self._cur,
             'n_epochs': self._n_epochs,
             **self.cur.progress.to_dict(),
@@ -248,17 +246,63 @@ class Course:
         for k, material in self._materials.items():
             material.progress.reset()
             material.data_iter.reset()
+    
+    @property
+    def epoch_results(self):
+        progress = self.progress()
+        return self._df[
+            (self._df[self.MATERIAL_COL] == self._cur) & 
+            (self._df[progress.CUR_EPOCH_COL] == progress.cur_epoch)
+        ][list(self._result_cols)]
 
     @property
     def completed(self):
         return self._completed
 
     @property
-    def df(self):
+    def results(self):
         return self._df
     
     def __contains__(self, material: str):
         return material in self._materials
+
+
+class ShowProgress(Action):
+    
+    course = var_[Course]()
+
+    def __init__(self, name: str):
+        super().__init__(name)
+        self._pbar = None
+        self._cur = None
+
+    def act(self):
+
+        course: Course = self.course.val
+
+        if course.completed:
+            if not self._pbar is None: 
+                self._pbar.close()
+                self._pbar = None
+            return Status.SUCCESS
+        
+        if course.cur is None:
+            return Status.FAILURE
+        
+        progress = course.progress()
+
+        if self._pbar is None:
+            self._pbar = tqdm(total=progress.n_iterations)
+        if progress.cur_iter == 0:
+            self._pbar.reset()
+        else:
+            self._pbar.update(1)
+        self._pbar.set_description_str(course.cur.name)
+
+        # self.pbar.total = self.course.val.cur.n_lesson_iterations
+        # self.pbar.set_postfix(lecture.results.mean(axis=0).to_dict())
+        # pbar.refresh()
+        return Status.SUCCESS
 
 
 class Teach(Action):
@@ -439,15 +483,23 @@ class Trainer(Tree):
             return Status.RUNNING
         
         progress = course.progress()
-
         if pbar.is_empty():
             pbar.val = tqdm(total=progress.n_iterations)
-        pbar.val.set_description_str(course.cur.name)
-        pbar.val.update(1)
+        if progress.cur_iter == 1 or progress.cur_iter == 0:
+            pbar.val.refresh()
+            pbar.val.reset()
+            pbar.val.total = progress.n_iterations
+        else:
+            pbar.val.update(1)
 
-        # self.pbar.total = lecture.n_lesson_iterations
-        # self.pbar.set_postfix(lecture.results.mean(axis=0).to_dict())
-        # pbar.refresh()
+        pbar.val.set_description_str(course.cur.name)
+
+        pbar.val.set_postfix({
+            "Epoch": f"{progress.cur_epoch} / {self._n_epochs}",
+            **course.epoch_results.mean(axis=0).to_dict()
+        })
+
+        pbar.val.refresh()
         return Status.RUNNING
 
 
