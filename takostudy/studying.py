@@ -380,7 +380,10 @@ def asdict_shallow(obj):
     return dict((field.name, getattr(obj, field.name)) for field in fields(obj))
 
 def is_trial_selector(value) -> bool:    
-    return isinstance(value, dict) and 'type' in value
+    return (
+        isinstance(value, dict) or isinstance(value, DictConfig)
+        and 'type' in value
+    )
 
 
 @dataclass
@@ -402,6 +405,10 @@ class OptunaParams(object):
 
         updated = dict()
         for k, v in overrides.items():
+            if k == 'type':
+                continue
+            elif k not in data_fields:
+                raise ValueError(f'Param {cls} do not include field {k}.')
             if issubclass(data_fields[k].type, OptunaParams):
                 updated[k] = data_fields[k].type.from_dict(**v)
             elif is_trial_selector(v):
@@ -595,7 +602,6 @@ class HydraStudyConfig(object):
             cfg.paths
         )
         self._cfg = cfg
-        print(OmegaConf.to_yaml(cfg))
 
     @property
     def experiment(self):
