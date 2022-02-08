@@ -573,9 +573,9 @@ class OptunaStudy(Study):
             nonlocal cur
             nonlocal summaries
             self._experiment.resample(trial)
-            score = self._experiment.trial()
+            summary = self._experiment.trial()
             cur += 1
-            return score
+            return summary.score
         return objective
 
     def run(self, name) -> typing.Tuple[Summary, typing.List[Summary]]:
@@ -597,12 +597,14 @@ class Config:
 
 class HydraStudyConfig(object):
 
-    def __init__(self, name, dir='./', overrides=None):
-        overrides = overrides or []
+    def __init__(self, name, dir='./', overrides: dict=None):
+    
+        overrides = overrides or {}
+        overrides_list = {f'{k}={v}' for k, v in overrides.items()}
         initialize_config_dir(dir)
 
         # overrides=["db=mysql", "db.user=me"])
-        cfg = compose(config_name=name, overrides=overrides) 
+        cfg = compose(config_name=name, overrides=overrides_list) 
         hydra.utils.call(
             cfg.paths
         )
