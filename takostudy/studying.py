@@ -529,14 +529,19 @@ class OptunaExperiment(Experiment):
     
     def trial(self) -> Summary:
 
-        summary = self.run()
+        summary = self.run(True)
         self._trials.append(summary)
         if self._best_index is None or summary.bests(self._trials[self._best_index]):
             self._best_index = len(self._trials) - 1
         return summary
-    
+
+    def full(self) -> Summary:
+
+        summary = self.run(False)
+        return summary
+
     @abstractmethod
-    def run(self) -> Summary:
+    def run(self, is_trial=False) -> Summary:
         raise NotImplementedError
 
 
@@ -568,9 +573,9 @@ class OptunaStudy(Study):
             nonlocal cur
             nonlocal summaries
             self._experiment.resample(trial)
-            evaluation = self._experiment.train(for_validation=True)
+            score = self._experiment.trial()
             cur += 1
-            return evaluation.score
+            return score
         return objective
 
     def run(self, name) -> typing.Tuple[Summary, typing.List[Summary]]:
@@ -580,7 +585,7 @@ class OptunaStudy(Study):
         objective = self.get_objective(name, summaries)
         optuna_study.optimize(objective, self._n_trials)
         self._experiment.to_best()
-        summary = self._experiment.train(for_validation=False)
+        summary = self._experiment.full() # for_validation=False)
         return summary, summaries
 
 
@@ -622,7 +627,7 @@ class HydraStudyConfig(object):
     def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
         cur = self._cfg[self._cfg['type']]
         params = convert_params(cur['experiment'])
-        experiment = experiment_cls(params['experiment'])
+        experiment = experiment_cls(params)
         return OptunaStudy(experiment, cur.name, cur.n_trials, cur.maximize)
 
     def create_experiment(self, experiment_cls: typing.Type[OptunaExperiment]):
