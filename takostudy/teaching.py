@@ -320,7 +320,7 @@ class Teach(Action):
 
     def is_prepared(self):
         
-        if self.learner.val is not None and self.course.val is not None:
+        if self.learner.val is None or self.course.val is None:
             return False
         
         return self._material in self.course.val

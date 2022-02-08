@@ -11,6 +11,8 @@ import hydra
 from omegaconf import DictConfig
 from pytest import param
 
+from hydra import compose, initialize, initialize_config_dir
+from omegaconf import OmegaConf
 from takostudy.teaching import Train
 
 PDELIM = "/"
@@ -576,17 +578,17 @@ class Config:
 
 class HydraStudyConfig(object):
 
-    def __init__(self, config: Config):
-        
-        @hydra.main(config_path=config.path, config_name=config.name)
-        def _(cfg : DictConfig):
-            
-            hydra.utils.call(
-                cfg.paths
-            )
-            return cfg
-        
-        self._cfg = _()
+    def __init__(self, name, dir='./', overrides=None):
+        overrides = overrides or []
+        initialize_config_dir(dir)
+
+        # overrides=["db=mysql", "db.user=me"])
+        cfg = compose(config_name=name, overrides=overrides) 
+        hydra.utils.call(
+            cfg.paths
+        )
+        self._cfg = cfg
+        print(OmegaConf.to_yaml(cfg))
     
     def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
 
