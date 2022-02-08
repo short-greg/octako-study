@@ -359,11 +359,18 @@ ParamMap: typing.Dict[str, TrialSelector] = {
 
 
 def convert_params(trial_params: dict):
-
-    return {
-        k: ParamMap[params['type']].from_dict(**params)
-        for k, params in trial_params.items()
-    }
+    result = {}
+    
+    for k, v in trial_params.items():
+        if k.lower() == 'type':
+            continue
+        if isinstance(v, dict) and 'type' in v and v['type'].lower() == 'sub':
+            result[k] = convert_params(v)
+        elif isinstance(v, dict) and 'type' in v:
+            result[k] = ParamMap[v['type']].from_dict(**v)
+        else:
+            result[k] = v
+    return result 
 
 
 # sub can be optuna params
@@ -589,13 +596,30 @@ class HydraStudyConfig(object):
         )
         self._cfg = cfg
         print(OmegaConf.to_yaml(cfg))
+
+    @property
+    def experiment(self):
+        return self._cfg.experiment
+    
+    @property
+    def experiment_type(self):
+        return self._cfg.type
+    
+    @property
+    def full(self):
+        return self._cfg.full_study
+
+    @property
+    def device(self):
+        return self._cfg.device
     
     def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
-
-        params = convert_params(self._cfg.params)
-        experiment = experiment_cls(**params)
-        return OptunaStudy(experiment, self._cfg.name, self._cfg.n_trials, self._cfg.to_maximize )
+        cur = self._cfg[self._cfg['type']]
+        params = convert_params(cur['experiment'])
+        experiment = experiment_cls(params['experiment'])
+        return OptunaStudy(experiment, cur.name, cur.n_trials, cur.maximize)
 
     def create_experiment(self, experiment_cls: typing.Type[OptunaExperiment]):
-        params = convert_params(self._cfg.params)
-        return experiment_cls(**params)
+        cur = self._cfg[self._cfg['type']]
+        params = convert_params(cur['experiment'])
+        return experiment_cls(params)
