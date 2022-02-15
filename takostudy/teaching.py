@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod, abstractproperty
 import dataclasses
 from functools import partial
 import typing
-from sango.nodes import (
+from sango.ext import (
     STORE_REF, Action, Status, Fallback, Var, Shared, Tree, Sequence, Parallel, 
-    action, condf, actionf, cond, loads_, success, loads, neg, task, task_, until, var_
+    action, condf, actionf, cond, loads_, success, loads, 
+    neg, task, task_, until, var_
 )
 from sango.vars import ref_
 from tqdm import tqdm
@@ -255,6 +256,10 @@ class Course:
     @property
     def completed(self):
         return self._completed
+    
+    @property
+    def n_epochs(self):
+        return self._n_epochs
 
     @property
     def results(self):
@@ -273,7 +278,7 @@ class ShowProgress(Action):
         self._course = course
 
     def act(self):
-        course: Course = self.course.val
+        course: Course = self._course.val
 
         if course.completed:
             if self._pbar: 
@@ -297,7 +302,7 @@ class ShowProgress(Action):
         self._pbar.set_description_str(course.cur.name)
 
         self._pbar.set_postfix({
-            "Epoch": f"{progress.cur_epoch} / {self._n_epochs}",
+            "Epoch": f"{progress.cur_epoch} / {course.n_epochs}",
             **course.epoch_results.mean(axis=0).to_dict()
         })
 
@@ -362,35 +367,37 @@ class Trainer(Tree):
     TESTING = "Testing"
 
     class entry(Parallel):
-        show_progress = action('show_progress')
+        show_progress = action('_show_progress')
 
-        class execute(Sequence):
+        class train(Fallback):
+            class execute(Sequence):
 
-            @until
-            @neg
-            class epoch(Sequence):
+                @until
+                @neg
+                class epoch(Sequence):
 
-                train = action('training')
-                class validation(Fallback):
-                    can_skip = condf('needs_validation') << loads(neg)
-                    validate = action('validation')
-                to_continue = condf('_to_continue')
-            
-            class testing(Fallback):
-                can_skip = condf('needs_testing') << loads(neg)
-                test = action('testing')
-    
+                    
+                    train = action('training')
+                    class validation(Fallback):
+                        can_skip = condf('needs_validation') << loads(neg)
+                        validate = action('validation')
+                    to_continue = condf('_to_continue')
+                
+                class testing(Fallback):
+                    can_skip = condf('needs_testing') << loads(neg)
+                    test = action('testing')
+        
+                complete = actionf('_complete')
+
+                class scoring(Fallback):
+                    score_testing = actionf('_score', "Testing")
+                    score_validation = actionf('_score', "Validation")
+                    score_training = actionf('_score', "Training")
             complete = actionf('_complete')
-
-            class scoring(Fallback):
-                score_testing = actionf('_score', "Testing")
-                score_validation = actionf('_score', "Validation")
-                score_training = actionf('_score', "Training")
 
     def __init__(
         self, name: str, n_epochs: int, train: DataLoaderIter, 
         validate: DataLoaderIter=None, test: DataLoaderIter=None,
-
     ):
         super().__init__(name)
         self._n_epochs = n_epochs
@@ -419,6 +426,7 @@ class Trainer(Tree):
         return Course(epochs=self._n_epochs, materials=materials)
 
     def output(self, val):
+        print(val)
         return Status.SUCCESS
 
     def needs_validation(self):

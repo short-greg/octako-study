@@ -1,4 +1,4 @@
-from sango.nodes import Status
+from sango.ext import Status
 import torch
 
 from tako.learners import Learner, Validator
@@ -74,37 +74,38 @@ class TestCourse:
 
     def test_results_with_no_data(self):
         course = self.create_course()
-        assert len(course.df) == 0
+        assert len(course.results) == 0
 
     def test_results_with_one_result(self):
         course = self.create_course()
         course.switch_material('Validation')
         course.adv_iter(
-            {'x': 2}
+            {'x':  torch.tensor(2)}
         )
-        assert len(course.df) == 1
+        assert len(course.results) == 1
 
     def test_results_with_two_results(self):
         course = self.create_course()
         course.switch_material('Validation')
         course.adv_iter(
-            {'x': 2}
+            {'x': torch.tensor(2)}
         )
         course.adv_iter(
-            {'x': 1}
+            {'x': torch.tensor(1)}
         )
-        assert len(course.df) == 2
+        assert len(course.results) == 2
 
     def test_results_with_two_result_columns(self):
         course = self.create_course()
         course.switch_material('Validation')
         course.adv_iter(
-            {'x': 2, 'y': 3}
+            {'x': torch.tensor(2), 'y': torch.tensor(3)}
         )
         course.adv_iter(
-            {'x': 1, 'y': 4}
+            {'x': torch.tensor(1), 'y': torch.tensor(4)}
         )
-        cols = course.df.columns
+        
+        cols = course.results.columns
         assert 'x' in cols
         assert 'y' in cols
 
@@ -118,12 +119,13 @@ class TestCourse:
         course = self.create_course()
         course.switch_material('Validation')
         course.adv_iter(
-            {'x': 2, 'y': 3}
+            {'x': torch.tensor(2), 'y': torch.tensor(3)}
         )
         course.adv_iter(
-            {'x': 1, 'y': 4}
+            {'x': torch.tensor(1), 'y': torch.tensor(4)}
         )
-        cols = course.df.columns
+        
+        cols = course.results.columns
         assert 'cur_iter' in cols
         assert 'n_epochs' in cols
 
@@ -160,7 +162,8 @@ class TestTrain:
 
     def test_teach_tick_returns_running(self):
         teach, _ = self._create_teach()
-        assert teach.tick() == Status.RUNNING
+        result = teach.tick()
+        assert result == Status.RUNNING
 
     def test_teach_tick_returns_succcess(self):
         teach, _ = self._create_teach()
