@@ -7,16 +7,13 @@ from sango.nodes import (
     action, condf, actionf, cond, loads_, success, loads, neg, task, task_, until, var_
 )
 from sango.vars import ref_
-from torch.types import Storage
-
 from tqdm import tqdm
-from dataclasses import dataclass, is_dataclass, field
+from dataclasses import dataclass, field
 import pandas as pd
 from torch.utils.data import DataLoader
 import math
 from tako.learners import Learner
 import torch
-
 
 
 class DatasetIterator(ABC):
@@ -268,41 +265,44 @@ class Course:
 
 
 class ShowProgress(Action):
-    
-    course = var_[Course]()
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, course: Var[Course]):
         super().__init__(name)
-        self._pbar = None
+        self._pbar: tqdm = None
         self._cur = None
+        self._course = course
 
     def act(self):
-
         course: Course = self.course.val
 
         if course.completed:
-            if not self._pbar is None: 
+            if self._pbar: 
                 self._pbar.close()
                 self._pbar = None
             return Status.SUCCESS
         
         if course.cur is None:
-            return Status.FAILURE
+            return Status.RUNNING
         
         progress = course.progress()
-
         if self._pbar is None:
             self._pbar = tqdm(total=progress.n_iterations)
-        if progress.cur_iter == 0:
+        if progress.cur_iter == 1 or progress.cur_iter == 0:
+            self._pbar.refresh()
             self._pbar.reset()
+            self._pbar.total = progress.n_iterations
         else:
             self._pbar.update(1)
+
         self._pbar.set_description_str(course.cur.name)
 
-        # self.pbar.total = self.course.val.cur.n_lesson_iterations
-        # self.pbar.set_postfix(lecture.results.mean(axis=0).to_dict())
-        # pbar.refresh()
-        return Status.SUCCESS
+        self._pbar.set_postfix({
+            "Epoch": f"{progress.cur_epoch} / {self._n_epochs}",
+            **course.epoch_results.mean(axis=0).to_dict()
+        })
+
+        self._pbar.refresh()
+        return Status.RUNNING
 
 
 class Teach(Action):
@@ -361,33 +361,27 @@ class Trainer(Tree):
     TRAINING = "Training"
     TESTING = "Testing"
 
-    @task
     class entry(Parallel):
-        update_progress_bar = actionf('_update_progress_bar', STORE_REF)
+        show_progress = action('show_progress')
 
-        @task
         class execute(Sequence):
 
-            @task
             @until
             @neg
             class epoch(Sequence):
 
-                train = action('training')             
-                @task
+                train = action('training')
                 class validation(Fallback):
                     can_skip = condf('needs_validation') << loads(neg)
                     validate = action('validation')
                 to_continue = condf('_to_continue')
             
-            @task
             class testing(Fallback):
                 can_skip = condf('needs_testing') << loads(neg)
                 test = action('testing')
     
             complete = actionf('_complete')
 
-            @task
             class scoring(Fallback):
                 score_testing = actionf('_score', "Testing")
                 score_validation = actionf('_score', "Validation")
@@ -405,6 +399,7 @@ class Trainer(Tree):
         self._test_iter = test
 
         self.course = Var(self._setup_course())
+        self._show_progress = ShowProgress('Progress', self.course)
 
         self.training = Train(
             self.TRAINING, learner=Shared(self.learner), course=Shared(self.course)
@@ -466,60 +461,3 @@ class Trainer(Tree):
         
         self.score.val = score
         return Status.SUCCESS
-
-    def _update_progress_bar(self, store: Storage):
-        
-        pbar = store.get_or_add('pbar', recursive=False)
-
-        course: Course = self.course.val
-
-        if course.completed:
-            if not pbar.is_empty(): 
-                pbar.val.close()
-                pbar.empty()
-            return Status.SUCCESS
-        
-        if course.cur is None:
-            return Status.RUNNING
-        
-        progress = course.progress()
-        if pbar.is_empty():
-            pbar.val = tqdm(total=progress.n_iterations)
-        if progress.cur_iter == 1 or progress.cur_iter == 0:
-            pbar.val.refresh()
-            pbar.val.reset()
-            pbar.val.total = progress.n_iterations
-        else:
-            pbar.val.update(1)
-
-        pbar.val.set_description_str(course.cur.name)
-
-        pbar.val.set_postfix({
-            "Epoch": f"{progress.cur_epoch} / {self._n_epochs}",
-            **course.epoch_results.mean(axis=0).to_dict()
-        })
-
-        pbar.val.refresh()
-        return Status.RUNNING
-
-
-# class Score(Action):
-
-#     course = var_[Course]()
-#     score = var_[float]()
-#     scored_by = var_[str]()
-#     teacher = var_[str]()
-
-#     def __init__(self, score_last: bool=True):
-#         super().__init__()
-#         self._score_last = score_last
-
-#     def act(self):
-#         score = self.course.val.eval(self.teacher.val)
-
-#         if math.isnan(score):
-#             return Status.FAILURE
-        
-#         self.score.val = score
-#         self.scored_by.val = self.teacher.val
-#         return Status.SUCCESS
