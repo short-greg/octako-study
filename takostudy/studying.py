@@ -566,7 +566,7 @@ class OptunaStudy(Study):
         self._n_trials = n_trials
         self._direction = self.get_direction(to_maximize)
     
-    def get_objective(self, name: str, summaries: typing.List) -> typing.Callable:
+    def get_objective(self, name: str, summaries: typing.Dict) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
@@ -575,19 +575,19 @@ class OptunaStudy(Study):
             self._experiment.resample(trial)
             summary = self._experiment.trial()
             cur += 1
-            summaries.append(summary)
+            summaries[cur] = summary
             return summary.score
         return objective
 
     def run(self, name) -> typing.Tuple[Summary, typing.List[Summary]]:
 
-        summaries = []
+        summaries = {}
         optuna_study = optuna.create_study(direction=self._direction)
         objective = self.get_objective(name, summaries)
         optuna_study.optimize(objective, self._n_trials)
         self._experiment.to_best()
         summary = self._experiment.full() # for_validation=False)
-        summaries.append(summary)
+        summaries['Final'] = summary
         return summary, summaries
 
 
