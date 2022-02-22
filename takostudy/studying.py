@@ -579,7 +579,7 @@ class OptunaStudy(Study):
             return summary.score
         return objective
 
-    def run(self, name) -> typing.Tuple[Summary, typing.List[Summary]]:
+    def run(self, name) -> typing.Tuple[Summary, typing.Dict[str, Summary]]:
 
         summaries = {}
         optuna_study = optuna.create_study(direction=self._direction)
@@ -615,6 +615,10 @@ class HydraStudyConfig(object):
     @property
     def experiment(self):
         return self._cfg.experiment
+    
+    @property
+    def directory(self):
+        return self._cfg.directory
     
     @property
     def experiment_type(self):
