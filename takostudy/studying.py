@@ -575,6 +575,7 @@ class OptunaStudy(Study):
             self._experiment.resample(trial)
             summary = self._experiment.trial()
             cur += 1
+            summaries.append(summary)
             return summary.score
         return objective
 
@@ -586,6 +587,7 @@ class OptunaStudy(Study):
         optuna_study.optimize(objective, self._n_trials)
         self._experiment.to_best()
         summary = self._experiment.full() # for_validation=False)
+        summaries.append(summary)
         return summary, summaries
 
 

@@ -375,8 +375,6 @@ class Trainer(Tree):
                 @until
                 @neg
                 class epoch(Sequence):
-
-                    
                     train = action('training')
                     class validation(Fallback):
                         can_skip = condf('needs_validation') << loads(neg)
