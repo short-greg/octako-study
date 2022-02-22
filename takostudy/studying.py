@@ -158,7 +158,7 @@ class Bool(TrialSelector):
 
     def suggest(self, trial: optuna.Trial, path: str):
 
-        return bool(trial.suggest_uniform(
+        return bool(trial.suggest_discrete_uniform(
             self.cat_path(path) , 0, 1
         ))
 
@@ -617,16 +617,16 @@ class HydraStudyConfig(object):
         return self._cfg.experiment
     
     @property
-    def directory(self):
-        return self._cfg.directory
-    
-    @property
     def experiment_type(self):
         return self._cfg.type
     
     @property
     def full(self):
         return self._cfg.full_study
+    
+    @property
+    def cfg(self):
+        return self._cfg
 
     @property
     def device(self):
