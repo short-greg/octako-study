@@ -16,6 +16,7 @@ from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
 from takostudy.teaching import Train
 from itertools import chain
+import inspect
 
 PDELIM = "/"
 
@@ -408,19 +409,20 @@ class OptunaParams(object):
     def from_dict(cls, **overrides: dict):
         data_fields = {item.name: item for item in fields(cls)}
 
+        args = []
         updated = dict()
         for k, v in overrides.items():
             if k == 'type':
                 continue
             elif k not in data_fields:
-                raise ValueError(f'Param {cls} do not include field {k}.')
-            if issubclass(data_fields[k].type, OptunaParams):
+                updated[k] =v
+            elif issubclass(data_fields[k].type, OptunaParams):
                 updated[k] = data_fields[k].type.from_dict(**v)
             elif is_trial_selector(v):
                 updated[k] = ParamMap[v['type']].from_dict(**v)
             else:
                 updated[k] = v
-        result = cls(**updated)
+        result = cls(*args, **updated)
         return result
     
     def define(self, **kwargs):
@@ -428,7 +430,7 @@ class OptunaParams(object):
     
     def extra_params(self) -> typing.Iterator:
         for k in self._extra:
-            yield k, object.__getattribute__(self, k)
+            yield k, getattr(self, k)
 
     def suggest(self, trial=None, path: str=''):
 

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from unittest.mock import Mock
 from dataclasses import field
 from . import studying
@@ -267,6 +267,18 @@ class MyParams(studying.OptunaParams):
     y: MyParams2 = field(default_factory=MyParams2)
 
 
+@dataclass
+class MyParamsB(studying.OptunaParams):
+
+    x: int = studying.Int('x', 0, 4, 1)
+    z: InitVar[MyParams2] = None
+
+    def __post_init__(self, z: MyParams2):
+        super().__post_init__()
+        self.z = MyParams2() if z is None else z
+        self._extra.append('z')
+
+
 class TestNestedOptunaParams:
 
     def test_nested_params_using_default(self):
@@ -321,6 +333,18 @@ class TestNestedOptunaParams:
     def test_nested_params_defined_is_true_after_sampling(self):
         params = MyParams.from_dict(
             y=dict(
+                z=dict(name='yy', low=1, high=3, default=3, type='Float')
+            )
+        )
+        trial = Mock()
+        trial.suggest_int.side_effect = lambda self, low, high: 2
+        trial.suggest_uniform.side_effect = lambda self, low, high: 1.5
+        params2 = params.suggest(trial, '')
+        assert params2.defined is True
+
+    def test_nested_params_defined_is_true_after_sampling2(self):
+        params = MyParamsB.from_dict(
+            z=dict(
                 z=dict(name='yy', low=1, high=3, default=3, type='Float')
             )
         )
