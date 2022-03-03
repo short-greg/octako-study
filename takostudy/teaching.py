@@ -5,9 +5,8 @@ import typing
 from sango.ext import (
     STORE_REF, Action, Status, Fallback, Var, Shared, Tree, Sequence, Parallel, 
     action, condf, actionf, cond, loads_, success, loads, 
-    neg, task, task_, until, var_
+    neg, task, task_, until, var_, ref_
 )
-from sango.vars import ref_
 from tqdm import tqdm
 from dataclasses import dataclass, field
 import pandas as pd

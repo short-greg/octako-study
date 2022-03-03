@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod, abstractproperty
 from dataclasses import dataclass, fields
+from numpy import isin
 import optuna
 import typing
 import hydra
@@ -14,6 +15,7 @@ from pytest import param
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
 from takostudy.teaching import Train
+from itertools import chain
 
 PDELIM = "/"
 
@@ -159,8 +161,8 @@ class Bool(TrialSelector):
     def suggest(self, trial: optuna.Trial, path: str):
 
         return bool(trial.suggest_discrete_uniform(
-            self.cat_path(path) , 0, 1
-        ))
+            self.cat_path(path) , 0, 1, 1
+        ) > 0.5)
 
     def update_best(self, best_val: dict, path: str=None):
         val = best_val.get(self.cat_path(path), self.default)
@@ -398,6 +400,9 @@ class OptunaParams(object):
     # TODO: doesn't work with selectors
     def state_dict(self):
         return asdict(self)
+    
+    def __post_init__(self):
+        self._extra = []
 
     @classmethod
     def from_dict(cls, **overrides: dict):
@@ -419,14 +424,17 @@ class OptunaParams(object):
         return result
     
     def define(self, **kwargs):
-
         return self.__class__(**kwargs)
+    
+    def extra_params(self) -> typing.Iterator:
+        for k in self._extra:
+            yield k, object.__getattribute__(self, k)
 
     def suggest(self, trial=None, path: str=''):
+
         args = {}
-        
         params = asdict_shallow(self)
-        for k, v in params.items():
+        for k, v in chain(params.items(), self.extra_params()):
             if isinstance(v, TrialSelector):
                 if trial is None:
                     args[k] = v.default
@@ -442,10 +450,14 @@ class OptunaParams(object):
     
     @property
     def defined(self):
+
         params = asdict(self)
-        for k, v in params.items():
+        for k, v in chain(params.items(), self.extra_params()):
             if isinstance(v, TrialSelector):
                 return False
+            if isinstance(v, OptunaParams):
+                if not v.defined:
+                    return False
         return True
 
 

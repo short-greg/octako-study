@@ -69,10 +69,31 @@ class TestExpInt:
             base= 1
         )
         assert int_.name == 'x'
-        assert int_.default == 0
+        assert int_.default == 1
+
+    def test_suggest_equals_value_from_dict_when_2(self):
+
+        int_ = studying.ExpInt.from_dict(
+            name= 'x',
+            low= 0,
+            high= 4,
+            default= 2,
+            base= 2
+        )
+        assert int_.name == 'x'
+        assert int_.default == 4
 
 
 class TestBool:
+
+    def test_suggest_equals_false(self):
+
+        int_ = studying.Bool(
+            "x", True
+        )
+        mock = Mock()
+        mock.suggest_discrete_uniform.side_effect = lambda self, low, high, other: 0.2
+        assert int_.suggest(mock, '') is False
 
     def test_suggest_equals_true(self):
 
@@ -80,8 +101,8 @@ class TestBool:
             "x", True
         )
         mock = Mock()
-        mock.suggest_uniform.side_effect = lambda self, low, high: 0
-        assert int_.suggest(mock, '') is False
+        mock.suggest_discrete_uniform.side_effect = lambda self, low, high, other: 0.6
+        assert int_.suggest(mock, '') is True
 
     def test_suggest_equals_value_from_dict(self):
 
@@ -149,7 +170,7 @@ class TestArray:
         )
         mock = Mock()
         mock.suggest_int.side_effect = lambda self, low, high: 2
-        mock.suggest_uniform.side_effect = lambda self, low, high: 0
+        mock.suggest_discrete_uniform.side_effect = lambda self, low, high, other: 0.5
 
         assert int_.suggest(mock, '') == [{'sub': False}, {'sub': False}]
 

@@ -1,7 +1,6 @@
 from sango.ext import Status
 import torch
-
-from tako.learners import Learner, Validator
+from tako import Learner, Tester
 from . import teaching
 from torch.utils.data import TensorDataset, DataLoader
 from torch import nn
@@ -52,7 +51,7 @@ class TestDataLoaderIterator:
         assert dataset.pos == 1
 
 
-class LearnerTest(Learner, Validator):
+class LearnerTest(Learner, Tester):
 
     def __init__(self):
         nn.Module.__init__(self)
@@ -243,7 +242,7 @@ def create_trainer(n_epochs=1):
 
 def create_learner():
 
-    class Learn(Learner, Validator):
+    class Learn(Learner, Tester):
 
         def __init__(self):
             nn.Module.__init__(self)
