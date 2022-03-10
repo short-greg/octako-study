@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod, abstractproperty
-from dataclasses import dataclass, fields
+from dataclasses import InitVar, dataclass, fields, field
 from numpy import isin
 import optuna
 import typing
@@ -17,6 +17,7 @@ from omegaconf import OmegaConf
 from takostudy.teaching import Train
 from itertools import chain
 import inspect
+
 
 PDELIM = "/"
 
@@ -415,8 +416,10 @@ class OptunaParams(object):
             if k == 'type':
                 continue
             elif k not in data_fields:
-                updated[k] =v
-            elif issubclass(data_fields[k].type, OptunaParams):
+                updated[k] = v
+            elif data_fields[k].type == OptunaSelector:
+                updated[k] = data_fields[k].type(**v)
+            elif isinstance(data_fields[k].type, type) and issubclass(data_fields[k].type, OptunaParams):
                 updated[k] = data_fields[k].type.from_dict(**v)
             elif is_trial_selector(v):
                 updated[k] = ParamMap[v['type']].from_dict(**v)
@@ -507,21 +510,47 @@ class Experiment(ABC):
         raise NotImplementedError
 
 
-class OptunaExperiment(Experiment):
+Selection = typing.Dict
+ParamArg = typing.Union[OptunaParams, dict]
+
+
+class ParamClass(object):
 
     class Params(OptunaParams):
         pass
 
     def __init__(self, param_overrides: dict=None):
-
         param_overrides = param_overrides or {}
         self._params_base = self.Params.from_dict(**param_overrides)
+
+
+@dataclass
+class OptunaSelector(object):
+
+    selected: str
+    params: InitVar[ParamArg] = None
+    selections: typing.ClassVar[Selection] = {}
+
+    def __post_init__(self, params):
+        params = params or {}
+
+        if isinstance(params, OptunaParams):
+            self.selections[self.selected](params)
+        else:
+            self.selections[self.selected].from_dict(
+                **params
+            )
+    
+
+class OptunaExperiment(ParamClass):
+
+    def __init__(self, param_overrides: dict=None):
+        super().__init__(param_overrides)
         self._params = self._params_base.suggest()
         self._trials: typing.List[Summary] = []
         self._best_index = None
     
     def reset(self):
-        
         self._params = None
         self._trials: typing.List[Summary] = []
         self._best_index = None
