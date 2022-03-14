@@ -63,7 +63,7 @@ class TrialSelector(ABC):
         return full_path
 
     @abstractmethod
-    def to_dict(self, flat=False):
+    def to_dict(self):
         raise NotImplementedError
 
     @abstractmethod
@@ -91,7 +91,7 @@ class Default(TrialSelector):
     def update_best(self, best_val: dict, path: str=None):
         return self.default
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, val=self._val
         )
@@ -125,7 +125,7 @@ class Int(TrialSelector):
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, low=self._low, high=self._high, default=self._default
         )
@@ -160,7 +160,7 @@ class ExpInt(TrialSelector):
     def update_best(self, best_val: dict, path: str=None):
         return self._base ** best_val.get(self.cat_path(path), self.default)
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, low=self._low, high=self._high, base=self._base, default=self._default
         )
@@ -189,7 +189,7 @@ class Bool(TrialSelector):
         val = best_val.get(self.cat_path(path), self.default)
         return bool(val)
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, default=self._default
         )
@@ -216,7 +216,7 @@ class Float(TrialSelector):
         val = best_val.get(self.cat_path(path), self.default)
         return val
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, low=self._low, high=self._high, default=self._default
         )
@@ -241,7 +241,7 @@ class Categorical(TrialSelector):
         return best_val.get(self.cat_path(path), self.default)
 
     
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, categories=self._categories, default=self._default
         )
@@ -275,7 +275,7 @@ class ConditionalCategorical(TrialSelector):
             return self.default
         return best_val[base_path], best_val[sub_path] 
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, categories=self._categories, default=self._default
         )
@@ -300,7 +300,7 @@ class LogUniform(TrialSelector):
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
 
-    def to_dict(self, flat=False):
+    def to_dict(self):
         return dict(
             name=self.name, low=self._low, high=self._high, default=self._default
         )
@@ -392,17 +392,13 @@ class Array(TrialSelector):
         
         return result
     
-    def to_dict(self, flat=False):
+    def to_dict(self):
         
-        # TODO: FINISH!!!!!!!!!!!!!!!!
         result = dict()
 
         for name, selector in self._params.items():
-            cur_result = selector.to_dict(flat)
-            if flat:
-                result.update(prepend_dict_names(name, cur_result))
-            else:
-                result[name] = cur_result
+            cur_result = selector.to_dict()
+            result[name] = cur_result
         return result
     
     @classmethod
@@ -476,7 +472,7 @@ class OptunaParams(object):
     def __post_init__(self):
         self._extra = []
     
-    def to_dict(self, flat: bool=False):
+    def to_dict(self):
 
         result = dict()
         for k, v in asdict(self).items():
@@ -485,7 +481,7 @@ class OptunaParams(object):
                 isinstance(v, TrialSelector) or
                 isinstance(v, OptunaParams)
             ):
-                result[k] = v.to_dict(flat)
+                result[k] = v.to_dict()
             else:
                 result[k] = v
         
@@ -521,6 +517,15 @@ class OptunaParams(object):
             yield k, getattr(self, k)
 
     def suggest(self, trial=None, path: str=''):
+        """Suggest params
+
+        Args:
+            trial (_type_, optional): optuna.Trial. Defaults to None.
+            path (str, optional): path for the variable. Defaults to ''.
+
+        Returns:
+            OptunaParams
+        """
 
         args = {}
         params = asdict_shallow(self)
@@ -558,6 +563,7 @@ class Summary(object):
     score: float
     maximize: bool
     for_validation: bool
+    trial_params: dict
 
     def bests(self, other):
         if self.maximize and other.maximize:
@@ -608,10 +614,10 @@ class ParamClass(object):
         param_overrides = param_overrides or {}
         self._params_base = self.Params.from_dict(**param_overrides)
 
-    def to_dict(self, flat: bool=False):
+    def to_dict(self):
 
         return dict(
-            params=self._params_base.to_dict(flat=flat)
+            params=self._params_base.to_dict()
         )
     
     @classmethod
@@ -626,11 +632,11 @@ class OptunaSelector(object):
     params: InitVar[ParamArg] = None
     selections: typing.ClassVar[Selection] = {}
 
-    def to_dict(self, flat: bool=False):
+    def to_dict(self):
 
         return dict(
             selected=self.selected,
-            selection=self.selection.to_dict(flat)
+            selection=self.selection.to_dict()
         )
     
     @classmethod
@@ -666,12 +672,12 @@ class OptunaExperiment(ParamClass):
     def params_ready(self):
         return self._params is not None
 
-    def to_dict(self, flat: bool=False):
+    def to_dict(self):
 
-        base = super().to_dict(flat)
+        base = super().to_dict()
 
         return dict(
-            params=self._params.to_dict(flat=flat),
+            params=self._params.to_dict(),
             **base
         )
 
@@ -801,3 +807,24 @@ class HydraStudyConfig(object):
         cur = self._cfg[self._cfg['type']]
         params = convert_params(cur['experiment'])
         return experiment_cls(params)
+
+
+def flatten_params(d: dict, prepend=None):
+
+    flattened = {}
+
+    for k, v in d.items():
+        
+        name = f'{prepend}/{k}' if prepend is not None else k
+
+        if isinstance(v, dict):
+            flattened.update(
+                flatten_params(v, name)
+            )
+        elif isinstance(v, tuple) or isinstance(v, list):
+            flattened.update(
+                dict(enumerate(flatten_params(v, name)))
+            )
+        else:
+            flattened[name] = v
+    return flattened
