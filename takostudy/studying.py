@@ -63,6 +63,10 @@ class TrialSelector(ABC):
         return full_path
 
     @abstractmethod
+    def to_dict(self, flat=False):
+        raise NotImplementedError
+
+    @abstractmethod
     def suggest(self, trial: optuna.Trial, path: str):
         raise NotImplementedError
 
@@ -86,6 +90,11 @@ class Default(TrialSelector):
     
     def update_best(self, best_val: dict, path: str=None):
         return self.default
+
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, val=self._val
+        )
 
     @classmethod
     def from_dict(cls, **params: dict):
@@ -115,6 +124,11 @@ class Int(TrialSelector):
 
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
+
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, low=self._low, high=self._high, default=self._default
+        )
 
     @classmethod
     def from_dict(cls, **params: dict):
@@ -146,6 +160,11 @@ class ExpInt(TrialSelector):
     def update_best(self, best_val: dict, path: str=None):
         return self._base ** best_val.get(self.cat_path(path), self.default)
 
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, low=self._low, high=self._high, base=self._base, default=self._default
+        )
+    
     @classmethod
     def from_dict(cls, **params: dict):
         return cls(
@@ -170,9 +189,14 @@ class Bool(TrialSelector):
         val = best_val.get(self.cat_path(path), self.default)
         return bool(val)
 
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, default=self._default
+        )
+
     @classmethod
     def from_dict(cls, **params: dict):
-        return cls(params['name'], default=params.get('default'))
+        return cls(params['name'], default=bool(params.get('default')))
 
 
 class Float(TrialSelector):
@@ -192,9 +216,14 @@ class Float(TrialSelector):
         val = best_val.get(self.cat_path(path), self.default)
         return val
 
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, low=self._low, high=self._high, default=self._default
+        )
+
     @classmethod
     def from_dict(cls, **params: dict):
-        return cls(params['name'], default=params.get('default'))
+        return cls(params['name'], low=params['low'], high=params['high'], default=params.get('default'))
 
 
 class Categorical(TrialSelector):
@@ -211,6 +240,12 @@ class Categorical(TrialSelector):
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
 
+    
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, categories=self._categories, default=self._default
+        )
+    
     @classmethod
     def from_dict(cls, **params: dict):
         return cls(params['name'], params["categories"], default=params.get('default'))
@@ -220,7 +255,7 @@ class ConditionalCategorical(TrialSelector):
 
     def __init__(self, name: str, categories: typing.Dict[str, str], default: str):
         super().__init__(name, default)
-        self._categeries = categories
+        self._categories = categories
     
     def _get_paths(self, path):
         base_path = self.cat_path(path)
@@ -230,7 +265,7 @@ class ConditionalCategorical(TrialSelector):
     def suggest(self, trial: optuna.Trial, path: str):
         base_path, sub_path = self._get_paths(path)
         base = trial.suggest_categorical(base_path, list(self._categeries.keys()))
-        sub_categories = self._categeries[base]
+        sub_categories = self._categories[base]
         sub = trial.suggest_categorical(sub_path, sub_categories)
         return (base, sub)
     
@@ -240,6 +275,11 @@ class ConditionalCategorical(TrialSelector):
             return self.default
         return best_val[base_path], best_val[sub_path] 
 
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, categories=self._categories, default=self._default
+        )
+    
     @classmethod
     def from_dict(cls, **params: dict):
         return cls(params['name'], params["categories"], default=params.get('default'))
@@ -259,17 +299,34 @@ class LogUniform(TrialSelector):
 
     def update_best(self, best_val: dict, path: str=None):
         return best_val.get(self.cat_path(path), self.default)
-    
+
+    def to_dict(self, flat=False):
+        return dict(
+            name=self.name, low=self._low, high=self._high, default=self._default
+        )
+
     @classmethod
     def from_dict(cls, **params: dict):
         return cls(params['name'], params["low"], params["high"], default=params.get('default'))
 
 
-class Non(object):
+# TODO: Do I need this?
+# class Non(object):
 
-    @staticmethod
-    def from_dict(**params: dict):
-        return params['value']
+
+#     def to_dict(self, flat=False):
+#         return dict(self.)
+
+#     @staticmethod
+#     def from_dict(**params: dict):
+#         return params['value']
+
+def prepend_dict_names(prepend_with: str, d: dict):
+
+    return {
+        f'{prepend_with}/{key}': val 
+        for key, val in d.items()
+    }
 
 
 class Array(TrialSelector):
@@ -335,6 +392,19 @@ class Array(TrialSelector):
         
         return result
     
+    def to_dict(self, flat=False):
+        
+        # TODO: FINISH!!!!!!!!!!!!!!!!
+        result = dict()
+
+        for name, selector in self._params.items():
+            cur_result = selector.to_dict(flat)
+            if flat:
+                result.update(prepend_dict_names(name, cur_result))
+            else:
+                result[name] = cur_result
+        return result
+    
     @classmethod
     def from_dict(cls, **params: dict):
         selectors: typing.Dict[str, TrialSelector] = {}
@@ -358,7 +428,7 @@ ParamMap: typing.Dict[str, TrialSelector] = {
     "ConditionalCategorical": ConditionalCategorical,
     "Bool": Bool,
     "Default": Default,
-    "Non": Non
+    # "Non": Non
 }
 
 
@@ -405,6 +475,21 @@ class OptunaParams(object):
     
     def __post_init__(self):
         self._extra = []
+    
+    def to_dict(self, flat: bool=False):
+
+        result = dict()
+        for k, v in asdict(self).items():
+            if (
+                isinstance(v, OptunaSelector) or 
+                isinstance(v, TrialSelector) or
+                isinstance(v, OptunaParams)
+            ):
+                result[k] = v.to_dict(flat)
+            else:
+                result[k] = v
+        
+        return result
 
     @classmethod
     def from_dict(cls, **overrides: dict):
@@ -510,7 +595,7 @@ class Experiment(ABC):
         raise NotImplementedError
 
 
-Selection = typing.Dict
+Selection = typing.Dict[str, typing.Type[OptunaParams]]
 ParamArg = typing.Union[OptunaParams, dict]
 
 
@@ -523,6 +608,16 @@ class ParamClass(object):
         param_overrides = param_overrides or {}
         self._params_base = self.Params.from_dict(**param_overrides)
 
+    def to_dict(self, flat: bool=False):
+
+        return dict(
+            params=self._params_base.to_dict(flat=flat)
+        )
+    
+    @classmethod
+    def from_dict(cls, **overrides):
+
+        return cls(selected=overrides['params'])
 
 @dataclass
 class OptunaSelector(object):
@@ -531,13 +626,25 @@ class OptunaSelector(object):
     params: InitVar[ParamArg] = None
     selections: typing.ClassVar[Selection] = {}
 
+    def to_dict(self, flat: bool=False):
+
+        return dict(
+            selected=self.selected,
+            selection=self.selection.to_dict(flat)
+        )
+    
+    @classmethod
+    def from_dict(cls, **overrides):
+
+        return cls(selected=overrides['selected'], params=overrides['selection'])
+
     def __post_init__(self, params):
         params = params or {}
 
         if isinstance(params, OptunaParams):
-            self.selections[self.selected](params)
+            self.selection = self.selections[self.selected](params)
         else:
-            self.selections[self.selected].from_dict(
+            self.selection = self.selections[self.selected].from_dict(
                 **params
             )
     
@@ -558,6 +665,15 @@ class OptunaExperiment(ParamClass):
     @property
     def params_ready(self):
         return self._params is not None
+
+    def to_dict(self, flat: bool=False):
+
+        base = super().to_dict(flat)
+
+        return dict(
+            params=self._params.to_dict(flat=flat),
+            **base
+        )
 
     def resample(self, trial=None, path: str=''):
         self._params = self._params_base.suggest(trial, path)
