@@ -582,6 +582,7 @@ class Summary(object):
         self.params.load_state_dict(state_dict['params'])
         self.score = state_dict['score']
         self.maximize = state_dict['maximize']
+        self.trial_params = state_dict['trial_params']
         self.for_validation = state_dict['for_validation']
 
     def state_dict(self):
@@ -589,6 +590,7 @@ class Summary(object):
         state_dict_ = {}
         state_dict_['score'] = self.score
         state_dict_['maximize'] = self.maximize
+        state_dict_['trial_params'] = self.trial_params
         state_dict_['params'] = self.params.state_dict()
         state_dict_['for_validation'] = self.for_validation
         return state_dict_
