@@ -285,6 +285,13 @@ class ConditionalCategorical(TrialSelector):
         return cls(params['name'], params["categories"], default=params.get('default'))
 
 
+class Non(object):
+
+    @classmethod
+    def from_dict(cls, **params: dict):
+        return params['value']
+
+
 class LogUniform(TrialSelector):
 
     def __init__(self, name: str, low: int, high: int, default: int):
@@ -424,7 +431,7 @@ ParamMap: typing.Dict[str, TrialSelector] = {
     "ConditionalCategorical": ConditionalCategorical,
     "Bool": Bool,
     "Default": Default,
-    # "Non": Non
+    "Non": Non
 }
 
 
@@ -659,11 +666,12 @@ class OptunaSelector(object):
 
 class OptunaExperiment(ParamClass):
 
-    def __init__(self, param_overrides: dict=None):
+    def __init__(self, param_overrides: dict=None, device='cpu'):
         super().__init__(param_overrides)
         self._params = self._params_base.suggest()
         self._trials: typing.List[Summary] = []
         self._best_index = None
+        self._device = device
     
     def reset(self):
         self._params = None
@@ -802,13 +810,13 @@ class HydraStudyConfig(object):
     def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
         cur = self._cfg[self._cfg['type']]
         params = convert_params(cur['experiment'])
-        experiment = experiment_cls(params)
+        experiment = experiment_cls(params, device=self.device)
         return OptunaStudy(experiment, cur.name, cur.n_trials, cur.maximize)
 
     def create_experiment(self, experiment_cls: typing.Type[OptunaExperiment]):
         cur = self._cfg[self._cfg['type']]
         params = convert_params(cur['experiment'])
-        return experiment_cls(params)
+        return experiment_cls(params, device=self._device)
 
 
 def flatten_params(d: dict, prepend=None):
@@ -825,7 +833,7 @@ def flatten_params(d: dict, prepend=None):
             )
         elif isinstance(v, tuple) or isinstance(v, list):
             flattened.update(
-                dict(enumerate(flatten_params(v, name)))
+                flatten_params(dict(enumerate(v)), name)
             )
         else:
             flattened[name] = v

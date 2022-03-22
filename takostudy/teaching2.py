@@ -155,3 +155,11 @@ class Lesson(Trainer):
             yield result
 
 # need to add the ability to specify iterations...
+
+
+# class Builder <- build up specific types of teachers
+# studying will depend on studying
+
+# class Ability to run a full lesson
+
+# 
