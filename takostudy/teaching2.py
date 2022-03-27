@@ -140,7 +140,6 @@ class ChartAccessor(object):
         )
 
 
-
 class DatasetIterator(ABC):
     """For conveniently iterating over a dataset in a behavior tree
     """
@@ -172,7 +171,7 @@ class DatasetIterator(ABC):
 
 class DataLoaderIter(DatasetIterator):
 
-    def __init__(self, dataloader: DataLoader):
+    def __init__(self, dataloader: data_utils.DataLoader):
         self._dataloader = dataloader
         self._cur_iter = iter(self._dataloader)
         self._finished = False
@@ -181,7 +180,7 @@ class DataLoaderIter(DatasetIterator):
         self._pos = 0
         self._iterate()
 
-    def reset(self, dataloader: DataLoader=None):
+    def reset(self, dataloader: data_utils.DataLoader=None):
 
         self._dataloader = dataloader or self._dataloader
         self._cur_iter = iter(self._dataloader)
@@ -224,57 +223,64 @@ class DataLoaderIter(DatasetIterator):
         return self._is_start
 
 
-
-
-T = TypeVar('T')
-
-class Assistant(ABC):
+class Assistant(object):
 
     def __init__(self, name: str):
         self.name = name
 
-    def start(self, progress: ChartAccessor):
+    def prep(self, progress: ChartAccessor):
         pass
 
     def assist(self, progress: ChartAccessor):
         pass
 
-    def finish(self, progress: ChartAccessor):
+    def wrap_up(self, progress: ChartAccessor):
         pass
+
+    # def pause(self):
+    #     pass
+    
+    # def reset(self):
+    #     pass
 
 
 class AssistantGroup(object):
 
     def __init__(self, assistants: typing.List[Assistant]=None):
 
-        self._assistants = assistants
+        self._assistants = assistants or []
 
-    def start(self, progress: ChartAccessor):
-
-        if self._assistants is None:
-            return
+    def prep(self, progress: ChartAccessor):
         
         for assistant in self._assistants:
-            assistant.start(progress)
+            assistant.prep(progress)
 
     def assist(self, progress: ChartAccessor):
-        if self._assistants is None:
-            return
 
         for assistant in self._assistants:
             assistant.assist(progress)
 
-    def finish(self, progress: ChartAccessor):
-        if self._assistants is None:
-            return
+    def wrap_up(self, progress: ChartAccessor):
 
         for assistant in self._assistants:
-            assistant.finish(progress)
+            assistant.wrap_up(progress)
+    
+    def reset(self):
+
+        for assistant in self._assistants:
+            assistant.reset()
+
+    # def pause(self):
+
+    #     for assistant in self._assistants:
+    #         assistant.pause()
 
 
-class Task(ABC):
+class Lesson(ABC):
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, assistants: typing.List[Assistant]=None):
+        super().__init__()
+        self._assistants = AssistantGroup(assistants)
         self._name = name
         self._status = Status.READY
 
@@ -283,16 +289,46 @@ class Task(ABC):
 
     def status(self) -> str:
         return self._status
+    
+    def _execute(self, progress: ChartAccessor):
+        pass
 
     @abstractmethod
     def advance(self, progress: ChartAccessor) -> Status:
-        raise NotImplementedError
-    
+        pass
+        
     def reset(self):
         self._status = Status.READY
 
+    # def pause(self) -> bool:
+    #     if self._status == Status.IN_PROGRESS:
+    #         self._assistants.pause()
+    #         return True
+    
+    # def resume(self):
 
-class Teacher(Task):
+    #     self._status = Status.IN_PROGRESS
+    #     self._assistants.resume()
+
+
+class Teacher(ABC):
+
+    def __init__(self, name: str):
+        self._status = Status.READY
+
+    @abstractmethod
+    def advance(self, progress: ChartAccessor) -> Status:
+        pass
+    
+    @abstractmethod
+    def reset(self):
+        pass
+
+    def status(self) -> str:
+        return self._status
+
+
+class Trainer(Teacher):
 
     def __init__(self, learner, dataset: data_utils.Dataset, batch_size: int, shuffle: bool=True):
         
@@ -324,7 +360,7 @@ class Teacher(Task):
         self._dataloader = None
         
 
-class Validator(Trainer):
+class Validator(Teacher):
 
     def __init__(self, learner, dataset: data_utils.Dataset, batch_size: int):
         
@@ -381,31 +417,39 @@ class ProgressBar(Assistant):
         #     **course.epoch_results.mean(axis=0).to_dict()
         # })
 
-    def reset():
+    def reset(self):
         super().reset()
         if self._pbar:
             self._pbar.close()
         self._pbar = None
 
-class Lecture(Task):
+
+class Lecture(Lesson):
 
     def __init__(self, name: str, trainer: Trainer, assistants: typing.List[Assistant]=None):
-        super().__init__(name)
+        super().__init__(name, assistants)
         self._trainer = trainer
-        self._assistants = AssistantGroup(assistants)
+        self._cur_iteration = 0
 
     def advance(self, progress: ChartAccessor) -> Status:
         
-        self._assistants.start(progress)
-        # progress = progress.accessor(self.name, n_iterations=len(self._trainer))
+        if self._status == Status.FINISHED:
+            return self._status
+    
+        if self._status == Status.READY:
+            self._assistants.prep(progress)
         
         self._status = self._trainer.advance(progress)
         self._assistants.assist(progress)
+        self._cur_iteration += 1
 
         if self._status == Status.FINISHED:
-            self._assistants.finish()
+            self._assistants.wrap_up()
         
         return self._status
+
+    def iteration(self) -> int:
+        return self._cur_iteration
 
     def reset(self):
         super().reset()
@@ -413,7 +457,7 @@ class Lecture(Task):
         self._trainer.reset()
 
 
-class Workshop(Task):
+class Workshop(Lesson):
 
     def __init__(self, name: str, lessons: typing.List[Lesson], assistants: typing.List[Assistant]=None, iterations: int=1):
 
@@ -430,22 +474,25 @@ class Workshop(Task):
             return self._status
 
         if self._status == Status.READY:
-            self._assistants.start(progress)
+            self._assistants.prep(progress)
         
         status = self._lessons[self._cur_lesson].advance(progress)
         if status == Status.FINISHED:
             self._cur_lesson += 1
-            if self._cur_lesson == len(self._lessons):
-                self._cur_iteration += 1
-                if self._cur_iteration == len(self._iterations):
-                    self._status = Status.FINISHED
-                    self._assistants.finish(progress)
-                    return self._status
-                for lesson in self._lessons:
-                    lesson.reset()
+        
+        if self._cur_lesson == len(self._lessons):
+            self._cur_iteration += 1
+        
+        if self._cur_iteration == len(self._iterations):
+            self._status = Status.FINISHED
+            self._assistants.wrap_up(progress)
+            return self._status
+        for lesson in self._lessons:
+            lesson.reset()
+        
         self._status = Status.IN_PROGRESS
         return self._status
-    
+
     def iteration(self) -> int:
         return self._cur_iteration
 
@@ -496,7 +543,7 @@ class NotifierF(Notifier):
         self._notify_f = notify_f
     
     def to_notify(self, progress: ChartAccessor) -> bool:
-        return self._notify_f(learner)
+        return self._notify_f(progress)
 
 
 class IterationNotifier(Notifier):
