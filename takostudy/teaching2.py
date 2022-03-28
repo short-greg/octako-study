@@ -61,20 +61,20 @@ class Chart(object):
         
         self.df = pd.DataFrame()
     
-    def accessor(self, name: str, n_iterations: int=None):
+    def accessor(self, category: str, name: str, iter_name: str, n_iterations: int=None):
         
-        return ChartAccessor(self, name, n_iterations=n_iterations)
+        return ChartAccessor(category, name, iter_name=iter_name, chart=self, n_iterations=n_iterations)
     
     def add_result(self, result: dict):
         
-        cur = pd.DataFrame(result)
+        cur = pd.DataFrame(result, index=[0])
         self.df = pd.concat([self.df, cur], ignore_index=True)
 
 
 class ChartAccessor(object):
 
     def __init__(
-        self,  category: str, name: str, iter_name: str, progress: Chart, 
+        self, name_category: str, name: str, iter_name: str, chart: Chart, 
         n_iterations: int= None, state: dict=None
     ):
         """initializer
@@ -87,8 +87,8 @@ class ChartAccessor(object):
             n_iterations (int, optional): _description_. Defaults to None.
             state (dict, optional): _description_. Defaults to None.
         """
-        self._category = category
-        self._progress = progress
+        self._name_category = name_category
+        self._chart = chart
         self._state = state or {}
         self._name = name
         self._iter_name = iter_name
@@ -101,14 +101,14 @@ class ChartAccessor(object):
     @property
     def local_state(self):
         return {
-            self._category: self._name,
+            self._name_category: self._name,
             self._iter_name: self._cur_iteration,
             f'N_{self._iter_name}': self._n_iterations, 
         }
     
     @property
-    def progress(self) -> Chart:
-        return self._progress
+    def chart(self) -> Chart:
+        return self._chart
 
     @property
     def iteration(self) -> int:
@@ -119,8 +119,10 @@ class ChartAccessor(object):
         return self._n_iterations
     
     @property
-    def results(self) -> pd.DataFrame:
-        return self._progress.df[self._progress.df[self._category] == self._name]
+    def results(self) -> typing.Optional[pd.DataFrame]:
+        if self._name_category not in set(self._chart.df.columns):
+            return None
+        return self._chart.df[self._chart.df[self._name_category] == self._name]
 
     def child(self, category: str, name: str, iter_name: str=None, n_iterations: int=-1):
         """Create a child progress accessor
@@ -139,7 +141,7 @@ class ChartAccessor(object):
             **self.local_state
         }
         return ChartAccessor(
-            category, name, iter_name, self._progress, n_iterations, state
+            category, name, iter_name, self._chart, n_iterations, state
         )
 
     def add_result(self, result: dict):
@@ -154,7 +156,7 @@ class ChartAccessor(object):
             **result,
             **self._state
         }
-        self._progress.add_result(
+        self._chart.add_result(
             full_result
         )
 
@@ -245,10 +247,14 @@ class DataLoaderIter(DatasetIterator):
 class Assistant(object):
 
     def __init__(self, name: str):
-        self.name = name
+        self._name = name
 
     def assist(self, progress: ChartAccessor, status: Status):
         pass
+
+    @property
+    def name(self):
+        return self._name
 
 
 class AssistantGroup(object):
@@ -260,7 +266,7 @@ class AssistantGroup(object):
     def assist(self, progress: ChartAccessor, status: Status):
 
         for assistant in self._assistants:
-            assistant.assist(progress)
+            assistant.assist(progress, status)
 
 
 class Lesson(ABC):
@@ -271,10 +277,12 @@ class Lesson(ABC):
         self._name = name
         self._status = Status.READY
 
+    @property
     def name(self) -> str:
         return self._name
 
-    def status(self) -> str:
+    @property
+    def status(self) -> Status:
         return self._status
     
     @abstractmethod
@@ -291,21 +299,21 @@ class Lesson(ABC):
 
 class Teacher(ABC):
 
-    def __init__(self, name: str):
+    def __init__(self):
         self._status = Status.READY
 
     @abstractmethod
     def advance(self, progress: ChartAccessor) -> Status:
         pass
     
-    @abstractmethod
     def reset(self):
-        pass
+        self._status = Status.READY
 
     def suspend(self):
         pass
 
-    def status(self) -> str:
+    @property
+    def status(self) -> Status:
         return self._status
 
 
@@ -313,6 +321,7 @@ class Trainer(Teacher):
 
     def __init__(self, learner, dataset: data_utils.Dataset, batch_size: int, shuffle: bool=True):
         
+        super().__init__()
         self._learner = learner
         self._dataset = dataset
         self._batch_size = batch_size
@@ -326,7 +335,7 @@ class Trainer(Teacher):
                 self._dataset, self._batch_size, shuffle=self._shuffle
             ))
 
-        if self._dataloader.is_end():
+        if self._status.is_finished or self._dataloader.is_end():
             self._status = Status.FINISHED
             return self._status
         
@@ -334,6 +343,7 @@ class Trainer(Teacher):
         result = self._learner.learn(x, t)
         progress.add_result(result)
         progress.update()
+        self._dataloader.adv()
         self._status = Status.IN_PROGRESS
         return self._status
 
@@ -345,7 +355,7 @@ class Trainer(Teacher):
 class Validator(Teacher):
 
     def __init__(self, learner, dataset: data_utils.Dataset, batch_size: int):
-        
+        super().__init__()
         self._learner = learner
         self._dataset = dataset
         self._batch_size = batch_size
@@ -366,6 +376,7 @@ class Validator(Teacher):
         result = self._learner.test(x, t)
         progress.add_result(result)
         progress.update()
+        self._dataloader.adv()
         self._status = Status.IN_PROGRESS
         return self._status
 
@@ -413,7 +424,10 @@ class ProgressBar(Assistant):
 
 class Lecture(Lesson):
 
-    def __init__(self, name: str, trainer: Trainer, assistants: typing.List[Assistant]=None):
+    def __init__(
+        self, name: str, trainer: Trainer, 
+        assistants: typing.List[Assistant]=None
+    ):
         super().__init__(name, assistants)
         self._trainer = trainer
         self._cur_iteration = 0
@@ -429,10 +443,7 @@ class Lecture(Lesson):
         self._status = self._trainer.advance(progress)
         self._assistants.assist(progress, self._status)
         self._cur_iteration += 1
-
-        if self._status.is_finished:
-            self._assistants.assist(progress, self._status)
-        
+        print(self._status)
         return self._status
 
     def suspend(self, progress: ChartAccessor) -> Status:
@@ -452,8 +463,7 @@ class Lecture(Lesson):
 class Workshop(Lesson):
 
     def __init__(self, name: str, lessons: typing.List[Lesson], assistants: typing.List[Assistant]=None, iterations: int=1):
-
-        self._name = name
+        super().__init__(name)
         self._lessons = lessons
         self._assistants = AssistantGroup(assistants)
         self._iterations = iterations
@@ -472,15 +482,19 @@ class Workshop(Lesson):
         if status.is_finished:
             self._cur_lesson += 1
         
+        print(self._cur_lesson, status.is_finished)
         if self._cur_lesson == len(self._lessons):
             self._cur_iteration += 1
         
-        if self._cur_iteration == len(self._iterations):
+        if self._cur_iteration == self._iterations:
             self._status = Status.FINISHED
             self._assistants.assist(progress, self._status)
             return self._status
-        for lesson in self._lessons:
-            lesson.reset()
+        
+        if self._cur_lesson == len(self._lessons):
+            for lesson in self._lessons:
+                lesson.reset()
+            self._cur_lesson = 0
         
         self._status = Status.IN_PROGRESS
         self._assistants.assist(progress, self._status)
@@ -494,11 +508,12 @@ class Workshop(Lesson):
         self._assistants.assist(progress, self._status)
         return self._status
 
+    @property
     def iteration(self) -> int:
         return self._cur_iteration
 
     def reset(self):
-        super().__init__()
+        super().reset()
         for lesson in self._lessons:
             lesson.reset()
         self._cur_iteration = 0
@@ -549,7 +564,7 @@ class IterationNotifier(Notifier):
         self._frequency = frequency
     
     def to_notify(self, progress: ChartAccessor, status: Status) -> bool:
-        return (not status.is_in_progress) or (((progress.iteration + 1) % self._frequency) == 0)
+        return (not status.is_in_progress) or (progress.iteration != 0 and ((progress.iteration) % self._frequency) == 0)
 
 
 class TrainerBuilder(object):
