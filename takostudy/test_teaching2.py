@@ -1,7 +1,7 @@
 import pytest
 
 
-from takostudy.teaching2 import Assistant, AssistantGroup, Chart, ChartAccessor, IterationNotifier, Lecture, Status, Trainer, Validator, Workshop
+from takostudy.teaching2 import Assistant, AssistantGroup, Chart, ChartAccessor, IterationNotifier, Lecture, Status, Trainer, TrainerBuilder, Validator, Workshop
 import torch.utils.data as data_utils
 import torch
 
@@ -353,3 +353,59 @@ class TestIterationNotifier:
         accessor.update()
         notifier.assist(accessor, Status.IN_PROGRESS)
         assert dummy.assisted is False
+
+
+class TestTrainerBuilder:
+    
+    def test_lecturer_in_progress_after_advance(self):
+
+        accessor = get_chart_accessor()
+        workshop = (
+            TrainerBuilder()
+            .teacher(get_dataset())
+            .validator(get_dataset())
+        ).build(Learner())
+        workshop.advance(accessor)
+        assert workshop.status.is_in_progress
+
+    def test_lecturer_finished_once_validator_finished(self):
+
+        accessor = get_chart_accessor()
+        workshop = (
+            TrainerBuilder()
+            .teacher(get_dataset())
+            .validator(get_dataset())
+        ).build(Learner())
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        assert workshop.status.is_finished
+
+    def test_lecturer_in_progres_after_trainer_finished(self):
+
+        accessor = get_chart_accessor()
+        workshop = (
+            TrainerBuilder()
+            .teacher(get_dataset())
+            .validator(get_dataset())
+        ).build(Learner())
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        assert workshop.status.is_in_progress
+
+    def test_lecturer_in_progres_after_trainer_finished(self):
+
+        accessor = get_chart_accessor()
+        workshop = (
+            TrainerBuilder()
+            .teacher(get_dataset())
+            .n_epochs(2)
+        ).build(Learner())
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        workshop.advance(accessor)
+        assert workshop.status.is_in_progress

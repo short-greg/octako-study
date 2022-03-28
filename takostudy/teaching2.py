@@ -570,74 +570,47 @@ class IterationNotifier(Notifier):
 class TrainerBuilder(object):
 
     def __init__(self):
-        self.n_epochs = 1
-        self.teacher = None
-        self.validator = None
-        self.tester = None
+        self._teacher_params = None
+        self._validator_params = None
+        self._tester_params = None
+        self._n_epochs = 1
     
-    def n_epochs(self, n_epochs: int):
-        self.n_epochs = n_epochs
+    def n_epochs(self, n_epochs: int=1):
+        self._n_epochs = n_epochs
         return self
 
     def teacher(self, dataset: data_utils.Dataset, batch_size: int=2**5):
-        self.teacher = Teacher(dataset, batch_size)
+        self._teacher_params = (dataset, batch_size)
         return self
 
     def validator(self, dataset: data_utils.Dataset, batch_size: int=2**5):
-        self.validator = Validator(dataset, batch_size)
+        self._validator_params = (dataset, batch_size)
+        return self
 
     def tester(self, dataset: data_utils.Dataset, batch_size: int=2**5):
-        self.tester = Validator(dataset, batch_size)
+        self._tester_params = (dataset, batch_size)
+        return self
 
-    def build(self):
+    def build(self, learner) -> Workshop:
 
         sub_teachers = []
-        if self.teacher is not None:
-            sub_teachers.append(self.teacher)
-        if self.validator is not None:
-            sub_teachers.append(self.validator)
+        if self._teacher_params is not None:
+            sub_teachers.append(Lecture("Teacher", Trainer(learner, *self._teacher_params)))
+        if self._validator_params is not None:
+            sub_teachers.append(Lecture("Validator", Validator(learner, *self._validator_params)))
         
         teachers = []
         if sub_teachers:
-            teachers.append(Lesson(
+            teachers.append(Workshop(
                 'Epoch',
-                [self.teacher, self.validator], iterations=self.n_epochs
+                sub_teachers, iterations=self._n_epochs
             ))
         
-        if self.tester is not None:
-            teachers.append(self.tester)
+        if self._tester_params is not None:
+            teachers.append(Validator(learner, *self._tester_params))
         
-        return Lesson('Training', teachers)
+        return Workshop('Training', teachers)
 
-
-
-# TODO: Add Standard teaching modules
-# Trainer
-# Validator
-# 
-
-
-# Main <- 
-# Assistant
-# Team <- 
-
-# Lesson(
-#     'Training',
-#     Lesson( 
-#         'Epoch',
-#         [Trainer(), Validator()],
-#         assistants=['ChartBar'],
-#         iterations=10
-#     ),
-#     Validator(),
-#     iterations=1
-# )
-
-
-# need to add the ability to specify iterations...
-
-
-# class Builder <- build up specific types of teachers
 # studying will depend on studying
 
 # class Ability to run a full lesson
