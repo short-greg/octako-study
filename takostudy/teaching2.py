@@ -6,6 +6,7 @@ import pandas as pd
 from sklearn import preprocessing
 from torch.utils import data as data_utils
 from tqdm import tqdm
+from enum import Enum
 
 # i like this better
 # could be conflicts in naming
@@ -30,13 +31,28 @@ from tqdm import tqdm
 # )
 
 
-from enum import Enum
-
 class Status(Enum):
     
     READY = 0
     IN_PROGRESS = 1
     FINISHED = 2
+    ON_HOLD = 3
+
+    @property
+    def is_on_hold(self):
+        return self == Status.ON_HOLD
+
+    @property
+    def is_finished(self):
+        return self == Status.FINISHED
+    
+    @property
+    def is_ready(self):
+        return self == Status.READY
+    
+    @property
+    def is_in_progress(self):
+        return self == Status.IN_PROGRESS
 
 
 class Chart(object):
@@ -57,7 +73,10 @@ class Chart(object):
 
 class ChartAccessor(object):
 
-    def __init__(self,  category: str, name: str, iter_name: str, progress: Chart, n_iterations: int= None, state: dict=None):
+    def __init__(
+        self,  category: str, name: str, iter_name: str, progress: Chart, 
+        n_iterations: int= None, state: dict=None
+    ):
         """initializer
 
         Args:
@@ -228,20 +247,8 @@ class Assistant(object):
     def __init__(self, name: str):
         self.name = name
 
-    def prep(self, progress: ChartAccessor):
+    def assist(self, progress: ChartAccessor, status: Status):
         pass
-
-    def assist(self, progress: ChartAccessor):
-        pass
-
-    def wrap_up(self, progress: ChartAccessor):
-        pass
-
-    # def pause(self):
-    #     pass
-    
-    # def reset(self):
-    #     pass
 
 
 class AssistantGroup(object):
@@ -250,30 +257,10 @@ class AssistantGroup(object):
 
         self._assistants = assistants or []
 
-    def prep(self, progress: ChartAccessor):
-        
-        for assistant in self._assistants:
-            assistant.prep(progress)
-
-    def assist(self, progress: ChartAccessor):
+    def assist(self, progress: ChartAccessor, status: Status):
 
         for assistant in self._assistants:
             assistant.assist(progress)
-
-    def wrap_up(self, progress: ChartAccessor):
-
-        for assistant in self._assistants:
-            assistant.wrap_up(progress)
-    
-    def reset(self):
-
-        for assistant in self._assistants:
-            assistant.reset()
-
-    # def pause(self):
-
-    #     for assistant in self._assistants:
-    #         assistant.pause()
 
 
 class Lesson(ABC):
@@ -290,7 +277,8 @@ class Lesson(ABC):
     def status(self) -> str:
         return self._status
     
-    def _execute(self, progress: ChartAccessor):
+    @abstractmethod
+    def suspend(self, progress: ChartAccessor) -> Status:
         pass
 
     @abstractmethod
@@ -299,16 +287,6 @@ class Lesson(ABC):
         
     def reset(self):
         self._status = Status.READY
-
-    # def pause(self) -> bool:
-    #     if self._status == Status.IN_PROGRESS:
-    #         self._assistants.pause()
-    #         return True
-    
-    # def resume(self):
-
-    #     self._status = Status.IN_PROGRESS
-    #     self._assistants.resume()
 
 
 class Teacher(ABC):
@@ -324,6 +302,9 @@ class Teacher(ABC):
     def reset(self):
         pass
 
+    def suspend(self):
+        pass
+
     def status(self) -> str:
         return self._status
 
@@ -337,10 +318,10 @@ class Trainer(Teacher):
         self._batch_size = batch_size
         self._dataloader = None
         self._shuffle = shuffle
-
+        
     def advance(self, progress: ChartAccessor) -> Status:
 
-        if self._status == Status.READY:
+        if self._status.is_ready:
             self._dataloader = DataLoaderIter(data_utils.DataLoader(
                 self._dataset, self._batch_size, shuffle=self._shuffle
             ))
@@ -354,6 +335,7 @@ class Trainer(Teacher):
         progress.add_result(result)
         progress.update()
         self._status = Status.IN_PROGRESS
+        return self._status
 
     def reset(self):
         super().reset()
@@ -385,6 +367,7 @@ class Validator(Teacher):
         progress.add_result(result)
         progress.update()
         self._status = Status.IN_PROGRESS
+        return self._status
 
     def reset(self):
         super().reset()
@@ -403,25 +386,29 @@ class ProgressBar(Assistant):
         self._pbar.reset()
         self._pbar.total = progress.n_iterations
 
-    def finish(self, progress: ChartAccessor):
+    def finish(self):
         self._pbar.close()
+    
+    def update(self, progress: ChartAccessor):
 
-    def assist(self, progress: ChartAccessor):
-        
+        if self._pbar is None:
+            self.start(progress)
         self._pbar.update(1)
         self._pbar.refresh()
         # ctx.pbar.set_description_str(course.cur.name)
-
         # ctx.pbar.set_postfix({
         #     "Epoch": f"{progress.cur_epoch} / {course.n_epochs}",
         #     **course.epoch_results.mean(axis=0).to_dict()
         # })
 
-    def reset(self):
-        super().reset()
-        if self._pbar:
-            self._pbar.close()
-        self._pbar = None
+    def assist(self, progress: ChartAccessor, status: Status):
+
+        if status.is_finished or status.is_on_hold:
+            self.finish()
+        elif status.is_in_progress:
+            self.update(progress)
+        elif status.is_ready:
+            self.start(progress)
 
 
 class Lecture(Lesson):
@@ -433,19 +420,25 @@ class Lecture(Lesson):
 
     def advance(self, progress: ChartAccessor) -> Status:
         
-        if self._status == Status.FINISHED:
+        if self._status.is_finished:
             return self._status
     
-        if self._status == Status.READY:
-            self._assistants.prep(progress)
+        if self._status.is_ready:
+            self._assistants.assist(progress, self._status)
         
         self._status = self._trainer.advance(progress)
-        self._assistants.assist(progress)
+        self._assistants.assist(progress, self._status)
         self._cur_iteration += 1
 
-        if self._status == Status.FINISHED:
-            self._assistants.wrap_up()
+        if self._status.is_finished:
+            self._assistants.assist(progress, self._status)
         
+        return self._status
+
+    def suspend(self, progress: ChartAccessor) -> Status:
+
+        self._status = Status.ON_HOLD
+        self._assistants.assist(progress, self._status)
         return self._status
 
     def iteration(self) -> int:
@@ -453,7 +446,6 @@ class Lecture(Lesson):
 
     def reset(self):
         super().reset()
-        self._assistants.reset()
         self._trainer.reset()
 
 
@@ -470,14 +462,14 @@ class Workshop(Lesson):
 
     def advance(self, progress: ChartAccessor) -> Status:
         
-        if self._status == Status.FINISHED:
+        if self._status.is_finished:
             return self._status
 
-        if self._status == Status.READY:
-            self._assistants.prep(progress)
+        if self._status.is_ready:
+            self._assistants.assist(progress, self._status)
         
         status = self._lessons[self._cur_lesson].advance(progress)
-        if status == Status.FINISHED:
+        if status.is_finished:
             self._cur_lesson += 1
         
         if self._cur_lesson == len(self._lessons):
@@ -485,12 +477,21 @@ class Workshop(Lesson):
         
         if self._cur_iteration == len(self._iterations):
             self._status = Status.FINISHED
-            self._assistants.wrap_up(progress)
+            self._assistants.assist(progress, self._status)
             return self._status
         for lesson in self._lessons:
             lesson.reset()
         
         self._status = Status.IN_PROGRESS
+        self._assistants.assist(progress, self._status)
+        return self._status
+
+    def suspend(self, progress: ChartAccessor) -> Status:
+
+        self._status = Status.ON_HOLD
+        for lesson in self._lessons:
+            lesson.suspend(progress)
+        self._assistants.assist(progress, self._status)
         return self._status
 
     def iteration(self) -> int:
@@ -498,7 +499,6 @@ class Workshop(Lesson):
 
     def reset(self):
         super().__init__()
-        self._assistants.reset()
         for lesson in self._lessons:
             lesson.reset()
         self._cur_iteration = 0
@@ -517,18 +517,13 @@ class Notifier(Assistant):
         super().__init__(name)
         self._assistants = AssistantGroup(assistants)
 
-    def start(self, progress: ChartAccessor):
-        return self._assistants.start(progress)
-
-    def finish(self, progress: ChartAccessor):
-        self._assistants.finish(progress)
-
     @abstractmethod
-    def to_notify(self, progress: ChartAccessor) -> bool:
+    def to_notify(self, progress: ChartAccessor, status: Status) -> bool:
         raise NotImplementedError
 
-    def assist(self, progress: ChartAccessor):
-        if self.to_notify(progress):
+    def assist(self, progress: ChartAccessor, status: Status):
+
+        if self.to_notify(progress, status):
             self._assistants.assist(progress)
     
     def reset(self):
@@ -542,8 +537,8 @@ class NotifierF(Notifier):
         super().__init__(name, assistants)
         self._notify_f = notify_f
     
-    def to_notify(self, progress: ChartAccessor) -> bool:
-        return self._notify_f(progress)
+    def to_notify(self, progress: ChartAccessor, status: Status) -> bool:
+        return self._notify_f(progress, status)
 
 
 class IterationNotifier(Notifier):
@@ -553,8 +548,8 @@ class IterationNotifier(Notifier):
         super().__init__(name, assistants)
         self._frequency = frequency
     
-    def to_notify(self, progress: ChartAccessor) -> bool:
-        return ((progress.iteration + 1) % self._frequency) == 0
+    def to_notify(self, progress: ChartAccessor, status: Status) -> bool:
+        return (not status.is_in_progress) or (((progress.iteration + 1) % self._frequency) == 0)
 
 
 class TrainerBuilder(object):
@@ -594,7 +589,6 @@ class TrainerBuilder(object):
                 [self.teacher, self.validator], iterations=self.n_epochs
             ))
         
-
         if self.tester is not None:
             teachers.append(self.tester)
         
