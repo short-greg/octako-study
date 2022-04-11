@@ -704,7 +704,7 @@ class TrainerBuilder(object):
 class CourseDirector(ABC):
 
     @abstractmethod
-    def run(self):
+    def run(self) -> Chart:
         pass
 
 
@@ -719,7 +719,7 @@ class ValidationCourseDirector(CourseDirector):
 
         self._training_dataset = training_dataset
         self._validation_dataset = validation_dataset
-        self._learner = learner
+        self.learner = learner
         self._builder = (
             TrainerBuilder()
             .validator(validation_dataset, batch_size)
@@ -727,13 +727,14 @@ class ValidationCourseDirector(CourseDirector):
             .n_epochs(n_epochs)
         )
     
-    def run(self, learner_override=None):
-        workshop = self._builder.build(learner_override or self._learner)
+    def run(self) -> Chart:
+        workshop = self._builder.build(self._learner)
         chart = Chart()
         
         status = workshop.advance(chart)
         while not status.is_finished:
             status = workshop.advance(chart)
+        return chart
 
 
 class TestingCourseDirector(CourseDirector):
@@ -754,10 +755,11 @@ class TestingCourseDirector(CourseDirector):
             .n_epochs(n_epochs)
         )
     
-    def run(self, learner_override=None):
-        workshop = self._builder.build(learner_override or self._learner)
+    def run(self) -> Chart:
+        workshop = self._builder.build(self._learner)
         chart = Chart()
         
         status = workshop.advance(chart)
         while not status.is_finished:
             status = workshop.advance(chart)
+        return chart
