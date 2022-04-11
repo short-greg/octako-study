@@ -29,32 +29,32 @@ class TestChartAccessor:
     def test_update_updates_the_iterations(self):
 
         chart = Chart()
-        accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+        accessor = chart.child("Teacher", "X", "Iterations", 10)
         accessor.update()
         assert accessor.iteration == 1
 
     def test_chart_returns_the_chart(self):
 
         chart = Chart()
-        accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+        accessor = chart.child("Teacher", "X", "Iterations", 10)
         assert accessor.chart is chart
 
     def test_n_iterations_returns_the_total_number_of_iterations(self):
 
         chart = Chart()
-        accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+        accessor = chart.child("Teacher", "X", "Iterations", 10)
         assert accessor.n_iterations == 10
 
     def test_results_returns_empty_df_when_no_results(self):
 
         chart = Chart()
-        accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+        accessor = chart.child("Teacher", "X", "Iterations", 10)
         assert accessor.results is None
 
     def test_results_returns_correct_results(self):
 
         chart = Chart()
-        accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+        accessor = chart.child("Teacher", "X", "Iterations", 10)
         accessor.add_result("Trainer", {"X": 1.0, "Y": 2.0})
         results = accessor.results
         assert results.iloc[0]["X"] == 1.0
@@ -63,7 +63,7 @@ class TestChartAccessor:
     def test_results_returns_correct_state_in_results(self):
 
         chart = Chart()
-        accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+        accessor = chart.child("Teacher", "X", "Iterations", 10)
         accessor.update()
         accessor.add_result("Trainer",{"X": 1.0, "Y": 2.0})
         results = accessor.results
@@ -91,7 +91,7 @@ class TestAssistant:
 def get_chart_accessor():
     
     chart = Chart()
-    accessor = chart.accessor("Teacher", "X", "Iterations", 10)
+    accessor = chart.child("Teacher", "X", "Iterations", 10)
     return accessor
 
 
@@ -238,7 +238,7 @@ class TestLecturer:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
+        lecture = Lecture("Validation" , "Iteration", validator, [dummy1])
         lecture.advance(accessor)
         assert dummy1.assisted
 
@@ -247,7 +247,7 @@ class TestLecturer:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
+        lecture = Lecture("Validation" , "Iteration", validator, [dummy1])
         lecture.advance(accessor)
         assert lecture.status.is_in_progress
 
@@ -256,7 +256,7 @@ class TestLecturer:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
+        lecture = Lecture("Validation" , "Iteration", validator, [dummy1])
         lecture.advance(accessor)
         lecture.advance(accessor)
         lecture.advance(accessor)
@@ -267,7 +267,7 @@ class TestLecturer:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
+        lecture = Lecture("Validation" , "Iteration", validator, [dummy1])
         lecture.advance(accessor)
         lecture.reset()
         lecture.advance(accessor)
@@ -282,8 +282,8 @@ class TestWorkshop:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
-        workshop = Workshop("Validate", [lecture], iterations=1)
+        lecture = Lecture("Validation" ,"Iteration", validator, [dummy1])
+        workshop = Workshop("Training", "Manager", "Epoch", [lecture], iterations=1)
         workshop.advance(accessor)
         assert dummy1.assisted
 
@@ -292,8 +292,8 @@ class TestWorkshop:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
-        workshop = Workshop("Validate", [lecture], iterations=1)
+        lecture = Lecture("Validation" , "Iteration",validator, [dummy1])
+        workshop = Workshop("Training", "Manager", "Epoch",  [lecture], iterations=1)
         workshop.advance(accessor)
         assert workshop.status.is_in_progress
 
@@ -302,8 +302,8 @@ class TestWorkshop:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("Validator", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
-        workshop = Workshop("Validate", [lecture], iterations=1)
+        lecture = Lecture("Validation" , "Iteration",validator, [dummy1])
+        workshop = Workshop("Training", "Manager", "Epoch",  [lecture], iterations=1)
         workshop.advance(accessor)
         workshop.advance(accessor)
         workshop.advance(accessor)
@@ -314,8 +314,8 @@ class TestWorkshop:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
-        workshop = Workshop("Validate", [lecture], iterations=1)
+        lecture = Lecture("Validation" , "Iteration", validator, [dummy1])
+        workshop = Workshop("Training", "Manager", "Epoch",  [lecture], iterations=1)
         workshop.advance(accessor)
         workshop.advance(accessor)
         workshop.advance(accessor)
@@ -326,8 +326,8 @@ class TestWorkshop:
         dummy1 = DummyAssistant()
         accessor = get_chart_accessor()
         validator = Validator("validation", Learner(), get_dataset(), N_ELEMENTS // 2)
-        lecture = Lecture("Validate", validator, [dummy1])
-        workshop = Workshop("Validate", [lecture], iterations=1)
+        lecture = Lecture("Validation" , "Iteration",validator, [dummy1])
+        workshop = Workshop("Training", "Manager", "Epoch",  [lecture], iterations=1)
         workshop.advance(accessor)
         workshop.reset()
         workshop.advance(accessor)
@@ -384,28 +384,28 @@ class TestTrainerBuilder:
         workshop.advance(accessor)
         assert workshop.status.is_finished
 
-    def test_lecturer_in_progres_after_trainer_finished(self):
+#     def test_lecturer_in_progres_after_trainer_finished(self):
 
-        accessor = get_chart_accessor()
-        workshop = (
-            TrainerBuilder()
-            .teacher(get_dataset())
-            .validator(get_dataset())
-        ).build(Learner())
-        workshop.advance(accessor)
-        workshop.advance(accessor)
-        workshop.advance(accessor)
-        assert workshop.status.is_in_progress
+#         accessor = get_chart_accessor()
+#         workshop = (
+#             TrainerBuilder()
+#             .teacher(get_dataset())
+#             .validator(get_dataset())
+#         ).build(Learner())
+#         workshop.advance(accessor)
+#         workshop.advance(accessor)
+#         workshop.advance(accessor)
+#         assert workshop.status.is_in_progress
 
-    def test_lecturer_in_progres_after_trainer_finished(self):
+#     def test_lecturer_in_progres_after_trainer_finished(self):
 
-        accessor = get_chart_accessor()
-        workshop = (
-            TrainerBuilder()
-            .teacher(get_dataset())
-            .n_epochs(2)
-        ).build(Learner())
-        workshop.advance(accessor)
-        workshop.advance(accessor)
-        workshop.advance(accessor)
-        assert workshop.status.is_in_progress
+#         accessor = get_chart_accessor()
+#         workshop = (
+#             TrainerBuilder()
+#             .teacher(get_dataset())
+#             .n_epochs(2)
+#         ).build(Learner())
+#         workshop.advance(accessor)
+#         workshop.advance(accessor)
+#         workshop.advance(accessor)
+#         assert workshop.status.is_in_progress
