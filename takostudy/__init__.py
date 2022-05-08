@@ -1,1 +1,1 @@
-from _study import *
+from ._study import *
