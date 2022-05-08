@@ -14,8 +14,8 @@ from pytest import param
 
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
-from takostudy.teaching import Train
 from itertools import chain
+import tako
 import inspect
 
 
