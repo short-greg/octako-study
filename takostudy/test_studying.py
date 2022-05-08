@@ -1,14 +1,14 @@
 from dataclasses import InitVar, dataclass
 from unittest.mock import Mock
 from dataclasses import field
-from . import studying
+from . import _study
 
 
 class TestDefault:
 
     def test_suggest_equals_correct_number(self):
 
-        default = studying.Default(
+        default = _study.Default(
             "x", 1
         )
         
@@ -16,7 +16,7 @@ class TestDefault:
 
     def test_from_dict_equals_correct_number(self):
 
-        default = studying.Default.from_dict(
+        default = _study.Default.from_dict(
             name= 'x',
             val= 1
         )
@@ -29,7 +29,7 @@ class TestInt:
 
     def test_suggest_equals_number_between_zero_and_four(self):
 
-        int_ = studying.Int(
+        int_ = _study.Int(
             "x", 0, 4, 1
         )
         mock = Mock()
@@ -38,7 +38,7 @@ class TestInt:
 
     def test_suggest_equals_value_from_deick(self):
 
-        int_ = studying.Int.from_dict(
+        int_ = _study.Int.from_dict(
             name= 'x',
             low= 0,
             high= 4,
@@ -52,7 +52,7 @@ class TestExpInt:
 
     def test_suggest_equals_eight(self):
 
-        int_ = studying.ExpInt(
+        int_ = _study.ExpInt(
             "x", 0, 4, 2
         )
         mock = Mock()
@@ -61,7 +61,7 @@ class TestExpInt:
 
     def test_suggest_equals_value_from_dict(self):
 
-        int_ = studying.ExpInt.from_dict(
+        int_ = _study.ExpInt.from_dict(
             name= 'x',
             low= 0,
             high= 4,
@@ -73,7 +73,7 @@ class TestExpInt:
 
     def test_suggest_equals_value_from_dict_when_2(self):
 
-        int_ = studying.ExpInt.from_dict(
+        int_ = _study.ExpInt.from_dict(
             name= 'x',
             low= 0,
             high= 4,
@@ -88,7 +88,7 @@ class TestBool:
 
     def test_suggest_equals_false(self):
 
-        int_ = studying.Bool(
+        int_ = _study.Bool(
             "x", True
         )
         mock = Mock()
@@ -97,7 +97,7 @@ class TestBool:
 
     def test_suggest_equals_true(self):
 
-        int_ = studying.Bool(
+        int_ = _study.Bool(
             "x", True
         )
         mock = Mock()
@@ -106,7 +106,7 @@ class TestBool:
 
     def test_suggest_equals_value_from_dict(self):
 
-        int_ = studying.Bool.from_dict(
+        int_ = _study.Bool.from_dict(
             name= 'x',
             default= False
         )
@@ -118,7 +118,7 @@ class TestFloat:
 
     def test_suggest_equals_correct_value(self):
 
-        int_ = studying.Float(
+        int_ = _study.Float(
             "x", 1, 4.5, 1.5
         )
         mock = Mock()
@@ -127,7 +127,7 @@ class TestFloat:
 
     def test_suggest_equals_value_from_dict(self):
 
-        int_ = studying.Float.from_dict(
+        int_ = _study.Float.from_dict(
             name= 'x',
             low= 1.,
             high= 4.5,
@@ -141,7 +141,7 @@ class TestCategorical:
 
     def test_suggest_equals_correct_value(self):
 
-        int_ = studying.Categorical(
+        int_ = _study.Categorical(
             "x", ['big', 'small'], 'small'
         )
         mock = Mock()
@@ -150,7 +150,7 @@ class TestCategorical:
 
     def test_suggest_equals_value_from_dict(self):
 
-        int_ = studying.Categorical.from_dict(
+        int_ = _study.Categorical.from_dict(
             name='x',
             categories= ['big', 'small'],
             default= 'big'
@@ -163,9 +163,9 @@ class TestArray:
 
     def test_suggest_equals_correct_value(self):
 
-        int_ = studying.Array(
+        int_ = _study.Array(
             "x", low=1, high=3, params={
-                'sub': studying.Bool('sub')
+                'sub': _study.Bool('sub')
             }
         )
         mock = Mock()
@@ -176,7 +176,7 @@ class TestArray:
 
     def test_suggest_equals_value_from_dict(self):
 
-        arr = studying.Array.from_dict(
+        arr = _study.Array.from_dict(
             name= 'x',
             low= 1,
             high= 3,
@@ -199,16 +199,16 @@ class TestConvertParams:
                 'name': 'b'
             }
         }
-        params =studying.convert_params(params)
-        assert isinstance(params['b'], studying.Int)
+        params =_study.convert_params(params)
+        assert isinstance(params['b'], _study.Int)
 
 
 class TestOptunaParams:
 
     @dataclass
-    class MyParams(studying.OptunaParams):
+    class MyParams(_study.OptunaParams):
 
-        x: int = studying.Int('x', 0, 4, 1)
+        x: int = _study.Int('x', 0, 4, 1)
 
     def test_sample_produces_my_params_with_defined_value(self):
 
@@ -256,21 +256,21 @@ class TestOptunaParams:
         assert params['x'] == 2
 
 @dataclass
-class MyParams2(studying.OptunaParams):
-    z: float = studying.Float('y', 0, 2)
+class MyParams2(_study.OptunaParams):
+    z: float = _study.Float('y', 0, 2)
 
 
 @dataclass
-class MyParams(studying.OptunaParams):
+class MyParams(_study.OptunaParams):
 
-    x: int = studying.Int('x', 0, 4, 1)
+    x: int = _study.Int('x', 0, 4, 1)
     y: MyParams2 = field(default_factory=MyParams2)
 
 
 @dataclass
-class MyParamsB(studying.OptunaParams):
+class MyParamsB(_study.OptunaParams):
 
-    x: int = studying.Int('x', 0, 4, 1)
+    x: int = _study.Int('x', 0, 4, 1)
     z: InitVar[MyParams2] = None
 
     def __post_init__(self, z: MyParams2):

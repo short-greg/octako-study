@@ -1,2 +1,1 @@
-from . import studying
-from . import teaching
+from _study import *
