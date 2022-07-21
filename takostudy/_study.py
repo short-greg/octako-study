@@ -805,13 +805,17 @@ class HydraStudyConfig(object):
     @property
     def cfg(self):
         return self._cfg
+    
+    @property
+    def study_cfg(self):
+        return self._cfg[self._cfg['type']]
 
     @property
     def device(self):
         return self._cfg.device
     
     def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
-        cur = self._cfg[self._cfg['type']]
+        cur = self.study_cfg
         params = convert_params(cur['experiment'])
         experiment = experiment_cls(params, device=self.device)
         return OptunaStudy(experiment, cur.name, cur.n_trials, cur.maximize)
