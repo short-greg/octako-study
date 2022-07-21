@@ -15,7 +15,6 @@ from pytest import param
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
 from itertools import chain
-import tako
 import inspect
 
 
@@ -753,6 +752,10 @@ class OptunaStudy(Study):
             summaries[cur] = summary
             return summary.score
         return objective
+    
+    @property
+    def experiment(self) -> OptunaExperiment:
+        return self._experiment
 
     def run(self, name) -> typing.Tuple[Summary, typing.Dict[str, Summary]]:
 
