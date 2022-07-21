@@ -789,7 +789,9 @@ class HydraStudyConfig(object):
             cfg.paths
         )
         self._cfg = cfg
+        self._params = convert_params(self.experiment_cfg)
 
+    # TODO: Ensure i can use this
     @property
     def experiment(self):
         return self._cfg.experiment
@@ -811,19 +813,37 @@ class HydraStudyConfig(object):
         return self._cfg[self._cfg['type']]
 
     @property
+    def experiment_cfg(self):
+        return self.study_cfg['experiment']
+
+    @property
     def device(self):
         return self._cfg.device
     
+    @property
+    def name(self) -> str:
+        return self.study_cfg.name
+    
+    @property
+    def n_trials(self) -> int:
+        return self.study_cfg.n_trials
+    
+    @property
+    def maximize(self) -> bool:
+        return self.study_cfg.maximize
+    
+    @property
+    def params(self) -> OptunaParams:
+        return self._params
+    
     def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
-        cur = self.study_cfg
-        params = convert_params(cur['experiment'])
-        experiment = experiment_cls(params, device=self.device)
-        return OptunaStudy(experiment, cur.name, cur.n_trials, cur.maximize)
+        # cur = self.study_cfg
+        experiment = experiment_cls(self.params, device=self.device)
+        return OptunaStudy(experiment, self.name, self.n_trials, self.maximize)
 
     def create_experiment(self, experiment_cls: typing.Type[OptunaExperiment]):
-        cur = self._cfg[self._cfg['type']]
-        params = convert_params(cur['experiment'])
-        return experiment_cls(params, device=self._device)
+        params = convert_params(self.experiment_cfg)
+        return experiment_cls(params, device=self.device)
 
 
 def flatten_params(d: dict, prepend=None):
