@@ -810,7 +810,7 @@ class HydraStudyConfig(object):
     
     @property
     def study_cfg(self):
-        return self._cfg[self._cfg['type']]
+        return self._cfg[self._cfg.study]
 
     @property
     def experiment_cfg(self):
