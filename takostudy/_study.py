@@ -721,7 +721,7 @@ class OptunaExperiment(ParamClass):
     #     return summary
 
     @abstractmethod
-    def experiment(self, trial: optuna.Trial=None) -> Summary:
+    def experiment(self, trial: optuna.Trial=None, path: str='') -> Summary:
         raise NotImplementedError
 
 
@@ -748,19 +748,17 @@ class OptunaStudy(Study):
         self._n_trials = n_trials
         self._direction = self.get_direction(to_maximize)
     
-    def get_objective(self, name: str, summaries: typing.Dict, params: typing.Dict) -> typing.Callable:
+    def get_objective(self, name: str, summaries: typing.Dict) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
             nonlocal cur
             nonlocal summaries
-            nonlocal params
             summary = self._experiment.experiment(trial)
             if self.best_idx not in summaries:
                 summaries[self.best_idx] = cur
             else:
                 summaries[self.best_idx] = summary.bests(summaries[summaries[self.best_idx]])
-            params[cur] = self._experiment.params
 
             # self._experiment.resample(trial)
             # summary = self._experiment.trial()
@@ -775,14 +773,14 @@ class OptunaStudy(Study):
 
     def run(self, name) -> typing.Tuple[Summary, typing.Dict[str, Summary]]:
 
-        summaries = {}
+        summaries: typing.Dict[str, Summary] = {}
         params = {}
         optuna_study = optuna.create_study(direction=self._direction)
         objective = self.get_objective(name, summaries, params)
         optuna_study.optimize(objective, self._n_trials)
         # self._experiment.to_best()
         # summary = self._experiment.full() # for_validation=False)
-        self._experiment.params = params[summaries[self.best_idx]]
+        self._experiment.params = summaries[summaries[self.best_idx]].params
         summary = self._experiment.experiment()
         summaries['Final'] = summary
         return summary, summaries
