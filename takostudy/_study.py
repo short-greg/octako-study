@@ -665,57 +665,63 @@ class OptunaSelector(object):
 
 class OptunaExperiment(ParamClass):
 
-    def __init__(self, param_overrides: dict=None, device='cpu'):
+    def __init__(self, param_overrides: dict=None):
         super().__init__(param_overrides)
         self._params = self._params_base.suggest()
-        self._trials: typing.List[Summary] = []
-        self._best_index = None
-        self._device = device
+        # self._trials: typing.List[Summary] = []
+        # self._best_index = None
     
     def reset(self):
-        self._params = None
-        self._trials: typing.List[Summary] = []
-        self._best_index = None
+        self._params = self._params_base.suggest()
+        # self._trials: typing.List[Summary] = []
     
     @property
-    def params_ready(self):
-        return self._params is not None
+    def params(self):
+        return self._params
 
-    def to_dict(self):
-
-        base = super().to_dict()
-
-        return dict(
-            params=self._params.to_dict(),
-            **base
-        )
-
-    def resample(self, trial=None, path: str=''):
-        self._params = self._params_base.suggest(trial, path)
-
-    def define_params(self, values: dict):
-        self._params = self._params_base.define(values)
+    @params.setter
+    def params(self, params):
+        self._params = params
     
-    def to_best(self):
-        if self._best_index is None:
-            raise ValueError('Experiment trial has not been run yet so there is no best')
-        self._params = self._trials[self._best_index].params
+    # @property
+    # def params_ready(self):
+    #     return self._params is not None
+
+    # def to_dict(self):
+
+    #     base = super().to_dict()
+
+    #     return dict(
+    #         params=self._params.to_dict(),
+    #         **base
+    #     )
+
+    # def resample(self, trial=None, path: str=''):
+    #     self._params = self._params_base.suggest(trial, path)
+
+    # def define_params(self, values: dict):
+    #     self._params = self._params_base.define(values)
     
-    def trial(self) -> Summary:
+    # def to_best(self):
+    #     if self._best_index is None:
+    #         raise ValueError('Experiment trial has not been run yet so there is no best')
+    #     self._params = self._trials[self._best_index].params
+    
+    # def trial(self) -> Summary:
 
-        summary = self.run(True)
-        self._trials.append(summary)
-        if self._best_index is None or summary.bests(self._trials[self._best_index]):
-            self._best_index = len(self._trials) - 1
-        return summary
+    #     summary = self.run(True)
+    #     self._trials.append(summary)
+    #     if self._best_index is None or summary.bests(self._trials[self._best_index]):
+    #         self._best_index = len(self._trials) - 1
+    #     return summary
 
-    def full(self) -> Summary:
+    # def full(self) -> Summary:
 
-        summary = self.run(False)
-        return summary
+    #     summary = self.run(False)
+    #     return summary
 
     @abstractmethod
-    def run(self, is_trial=False) -> Summary:
+    def experiment(self, trial: optuna.Trial=None) -> Summary:
         raise NotImplementedError
 
 
@@ -727,6 +733,8 @@ class Study(ABC):
 
 
 class OptunaStudy(Study):
+
+    best_idx = 'best_idx'
 
     @staticmethod
     def get_direction(to_maximize):
@@ -740,14 +748,22 @@ class OptunaStudy(Study):
         self._n_trials = n_trials
         self._direction = self.get_direction(to_maximize)
     
-    def get_objective(self, name: str, summaries: typing.Dict) -> typing.Callable:
+    def get_objective(self, name: str, summaries: typing.Dict, params: typing.Dict) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
             nonlocal cur
             nonlocal summaries
-            self._experiment.resample(trial)
-            summary = self._experiment.trial()
+            nonlocal params
+            summary = self._experiment.experiment(trial)
+            if self.best_idx not in summaries:
+                summaries[self.best_idx] = cur
+            else:
+                summaries[self.best_idx] = summary.bests(summaries[summaries[self.best_idx]])
+            params[cur] = self._experiment.params
+
+            # self._experiment.resample(trial)
+            # summary = self._experiment.trial()
             cur += 1
             summaries[cur] = summary
             return summary.score
@@ -760,11 +776,14 @@ class OptunaStudy(Study):
     def run(self, name) -> typing.Tuple[Summary, typing.Dict[str, Summary]]:
 
         summaries = {}
+        params = {}
         optuna_study = optuna.create_study(direction=self._direction)
-        objective = self.get_objective(name, summaries)
+        objective = self.get_objective(name, summaries, params)
         optuna_study.optimize(objective, self._n_trials)
-        self._experiment.to_best()
-        summary = self._experiment.full() # for_validation=False)
+        # self._experiment.to_best()
+        # summary = self._experiment.full() # for_validation=False)
+        self._experiment.params = params[summaries[self.best_idx]]
+        summary = self._experiment.experiment()
         summaries['Final'] = summary
         return summary, summaries
 
@@ -810,7 +829,7 @@ class HydraStudyConfig(object):
     
     @property
     def study_cfg(self):
-        return self._cfg[self._cfg.study]
+        return self._cfg.study
 
     @property
     def experiment_cfg(self):
