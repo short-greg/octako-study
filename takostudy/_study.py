@@ -563,7 +563,7 @@ class OptunaParams(object):
 
 
 @dataclass
-class Summary(object):
+class Validation(object):
 
     params: OptunaParams
     score: float
@@ -605,7 +605,7 @@ class Summary(object):
 class Experiment(ABC):
 
     @abstractmethod
-    def run(self) -> Summary:
+    def run(self) -> Validation:
         raise NotImplementedError
 
 
@@ -668,12 +668,12 @@ class OptunaExperiment(ParamClass):
     def __init__(self, param_overrides: dict=None):
         super().__init__(param_overrides)
         self._params = self._params_base.suggest()
-        # self._trials: typing.List[Summary] = []
+        # self._trials: typing.List[Validation] = []
         # self._best_index = None
     
     def reset(self):
         self._params = self._params_base.suggest()
-        # self._trials: typing.List[Summary] = []
+        # self._trials: typing.List[Validation] = []
     
     @property
     def params(self):
@@ -682,6 +682,8 @@ class OptunaExperiment(ParamClass):
     @params.setter
     def params(self, params):
         self._params = params
+
+    # TODO: REMOVE CODE ONCE I CONFIRM EVERYTHING IS WORKING
     
     # @property
     # def params_ready(self):
@@ -707,7 +709,7 @@ class OptunaExperiment(ParamClass):
     #         raise ValueError('Experiment trial has not been run yet so there is no best')
     #     self._params = self._trials[self._best_index].params
     
-    # def trial(self) -> Summary:
+    # def trial(self) -> Validation:
 
     #     summary = self.run(True)
     #     self._trials.append(summary)
@@ -715,13 +717,17 @@ class OptunaExperiment(ParamClass):
     #         self._best_index = len(self._trials) - 1
     #     return summary
 
-    # def full(self) -> Summary:
+    # def full(self) -> Validation:
 
     #     summary = self.run(False)
     #     return summary
 
     @abstractmethod
-    def experiment(self, trial: optuna.Trial=None, path: str='') -> Summary:
+    def trial_experiment(self, trial: optuna.Trial, path: str='') -> Validation:
+        raise NotImplementedError
+
+    @abstractmethod
+    def experiment(self, params: OptunaParams) -> Validation:
         raise NotImplementedError
 
 
@@ -754,7 +760,7 @@ class OptunaStudy(Study):
         def objective(trial: optuna.Trial):
             nonlocal cur
             nonlocal summaries
-            summary = self._experiment.experiment(trial)
+            summary = self._experiment.trial_experiment(trial)
             if self.best_idx not in summaries:
                 summaries[self.best_idx] = cur
             else:
@@ -771,17 +777,16 @@ class OptunaStudy(Study):
     def experiment(self) -> OptunaExperiment:
         return self._experiment
 
-    def run(self, name) -> typing.Tuple[Summary, typing.Dict[str, Summary]]:
+    def run(self, name) -> typing.Tuple[Validation, typing.Dict[str, Validation]]:
 
-        summaries: typing.Dict[str, Summary] = {}
+        summaries: typing.Dict[str, Validation] = {}
         params = {}
         optuna_study = optuna.create_study(direction=self._direction)
         objective = self.get_objective(name, summaries, params)
         optuna_study.optimize(objective, self._n_trials)
         # self._experiment.to_best()
         # summary = self._experiment.full() # for_validation=False)
-        self._experiment.params = summaries[summaries[self.best_idx]].params
-        summary = self._experiment.experiment()
+        summary = self._experiment.experiment(summaries[summaries[self.best_idx]].params)
         summaries['Final'] = summary
         return summary, summaries
 
