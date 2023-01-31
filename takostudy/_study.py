@@ -532,7 +532,6 @@ class OptunaParams(object):
         Returns:
             OptunaParams
         """
-
         args = {}
         params = asdict_shallow(self)
         for k, v in chain(params.items(), self.extra_params()):
@@ -571,12 +570,12 @@ class Validation(object):
     for_validation: bool
     trial_params: dict
 
-    def bests(self, other):
+    def bests(self, other: 'Validation') -> 'Validation':
         if self.maximize and other.maximize:
-            return self.score > other.score
+            return self if self.score > other.score else other
 
         elif not self.maximize and not other.maximize:
-            return self.score < other.score
+            return self if self.score < other.score else other
 
         raise ValueError(
             'Cannot compare two summaries unless the value for maximize is the same: ' 
@@ -740,7 +739,8 @@ class Study(ABC):
 
 class OptunaStudy(Study):
 
-    best_idx = 'best_idx'
+    best_idx = 'BEST'
+    final_idx = 'FINAL'
 
     @staticmethod
     def get_direction(to_maximize):
@@ -754,7 +754,7 @@ class OptunaStudy(Study):
         self._n_trials = n_trials
         self._direction = self.get_direction(to_maximize)
     
-    def get_objective(self, name: str, summaries: typing.Dict) -> typing.Callable:
+    def get_objective(self, summaries: typing.Dict) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
@@ -762,14 +762,14 @@ class OptunaStudy(Study):
             nonlocal summaries
             summary = self._experiment.trial_experiment(trial)
             if self.best_idx not in summaries:
-                summaries[self.best_idx] = cur
+                summaries[self.best_idx] = summary
             else:
-                summaries[self.best_idx] = summary.bests(summaries[summaries[self.best_idx]])
+                summaries[self.best_idx] = summary.bests(summaries[self.best_idx])
 
             # self._experiment.resample(trial)
             # summary = self._experiment.trial()
-            cur += 1
             summaries[cur] = summary
+            cur += 1
             return summary.score
         return objective
     
@@ -780,14 +780,11 @@ class OptunaStudy(Study):
     def run(self, name) -> typing.Tuple[Validation, typing.Dict[str, Validation]]:
 
         summaries: typing.Dict[str, Validation] = {}
-        params = {}
         optuna_study = optuna.create_study(direction=self._direction)
-        objective = self.get_objective(name, summaries, params)
+        objective = self.get_objective(summaries)
         optuna_study.optimize(objective, self._n_trials)
-        # self._experiment.to_best()
-        # summary = self._experiment.full() # for_validation=False)
-        summary = self._experiment.experiment(summaries[summaries[self.best_idx]].params)
-        summaries['Final'] = summary
+        summary = self._experiment.experiment(summaries[self.best_idx].params)
+        summaries[self.final_idx] = summary
         return summary, summaries
 
 
