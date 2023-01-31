@@ -667,12 +667,9 @@ class OptunaExperiment(ParamClass):
     def __init__(self, param_overrides: dict=None):
         super().__init__(param_overrides)
         self._params = self._params_base.suggest()
-        # self._trials: typing.List[Validation] = []
-        # self._best_index = None
-    
+
     def reset(self):
         self._params = self._params_base.suggest()
-        # self._trials: typing.List[Validation] = []
     
     @property
     def params(self):
@@ -681,45 +678,6 @@ class OptunaExperiment(ParamClass):
     @params.setter
     def params(self, params):
         self._params = params
-
-    # TODO: REMOVE CODE ONCE I CONFIRM EVERYTHING IS WORKING
-    
-    # @property
-    # def params_ready(self):
-    #     return self._params is not None
-
-    # def to_dict(self):
-
-    #     base = super().to_dict()
-
-    #     return dict(
-    #         params=self._params.to_dict(),
-    #         **base
-    #     )
-
-    # def resample(self, trial=None, path: str=''):
-    #     self._params = self._params_base.suggest(trial, path)
-
-    # def define_params(self, values: dict):
-    #     self._params = self._params_base.define(values)
-    
-    # def to_best(self):
-    #     if self._best_index is None:
-    #         raise ValueError('Experiment trial has not been run yet so there is no best')
-    #     self._params = self._trials[self._best_index].params
-    
-    # def trial(self) -> Validation:
-
-    #     summary = self.run(True)
-    #     self._trials.append(summary)
-    #     if self._best_index is None or summary.bests(self._trials[self._best_index]):
-    #         self._best_index = len(self._trials) - 1
-    #     return summary
-
-    # def full(self) -> Validation:
-
-    #     summary = self.run(False)
-    #     return summary
 
     @abstractmethod
     def trial_experiment(self, trial: optuna.Trial, path: str='') -> Validation:
@@ -766,8 +724,6 @@ class OptunaStudy(Study):
             else:
                 summaries[self.best_idx] = summary.bests(summaries[self.best_idx])
 
-            # self._experiment.resample(trial)
-            # summary = self._experiment.trial()
             summaries[cur] = summary
             cur += 1
             return summary.score
