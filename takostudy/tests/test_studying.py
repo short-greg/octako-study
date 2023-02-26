@@ -1,7 +1,7 @@
 from dataclasses import InitVar, dataclass
 from unittest.mock import Mock
 from dataclasses import field
-from . import _study
+from .. import _study
 
 
 class TestDefault:

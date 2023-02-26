@@ -1,35 +1,35 @@
+# 1st party
 from abc import ABC, abstractmethod, abstractproperty
-from dataclasses import InitVar, dataclass, fields, field
-from numpy import isin
-import optuna
-import typing
-import hydra
 from abc import ABC, abstractmethod
+from dataclasses import InitVar, dataclass, fields, field
 from dataclasses import asdict, dataclass
-import optuna
 import typing
-import hydra
-from omegaconf import DictConfig
+import typing
 from pytest import param
-
-from hydra import compose, initialize, initialize_config_dir
-from omegaconf import OmegaConf
 from itertools import chain
 import inspect
+
+# 3rd party
+from numpy import isin
+import optuna
+import optuna
+import hydra
+import hydra
+from hydra import compose, initialize, initialize_config_dir
+from omegaconf import DictConfig
+from omegaconf import OmegaConf
+import functools
+
+
+# my libraries
+from octako.components import Learner
+from octako import teach
 
 
 PDELIM = "/"
 
-
-class Study(ABC):
-
-    @abstractmethod
-    def perform(self) -> float:
-        pass
-
-    @abstractproperty
-    def params(self):
-        pass
+LearnerFactory = typing.Callable[[typing.Any], Learner]
+TeacherFactory = typing.Callable[[typing.Any], teach.Teacher]
 
 
 class TrialSelector(ABC):
@@ -335,17 +335,6 @@ class LogUniform(TrialSelector):
         return cls(params['name'], params["low"], params["high"], default=params.get('default'))
 
 
-# TODO: Do I need this?
-# class Non(object):
-
-
-#     def to_dict(self, flat=False):
-#         return dict(self.)
-
-#     @staticmethod
-#     def from_dict(**params: dict):
-#         return params['value']
-
 def prepend_dict_names(prepend_with: str, d: dict):
 
     return {
@@ -453,10 +442,40 @@ ParamMap: typing.Dict[str, TrialSelector] = {
 }
 
 
-def convert_params(trial_params: dict):
+class Params(object):
+
+    def __init__(self, params: typing.Dict):
+        """initializer
+        Args:
+            params (typing.Dict): the parameters for the model
+        """
+        self._params = params
+
+    def suggest(self, trial, path: str='') -> 'Params':
+        params = {}
+        for k, v in self._params.items():
+            if isinstance(v, TrialSelector):
+                params[k] = v.suggest(trial, path)
+            else:
+                params[k] = v
+
+        return Params(**params)
+
+    def to_dict(self) -> typing.Dict:
+        result = {}
+        for k, v in self._params:
+            if isinstance(v, TrialSelector):
+                result[k] = v.default
+            else:
+                result[k] = v
+
+        return result
+
+
+def convert_params(trial_param_config: typing.Dict) -> typing.Dict:
     result = {}
     
-    for k, v in trial_params.items():
+    for k, v in trial_param_config.items():
         if k.lower() == 'type':
             continue
         if isinstance(v, dict) and 'type' in v and v['type'].lower() == 'sub':
@@ -468,243 +487,30 @@ def convert_params(trial_params: dict):
     return result 
 
 
-# sub can be optuna params
-# sub can be tunablefactory
+def to_params(trial_param_config: typing.Dict) -> Params:
+    """Convert 
+
+    Args:
+        trial_params (typing.Dict): _description_
+
+    Returns:
+        Params: _description_
+    """
+
+    return Params(
+        convert_params(trial_param_config)
+    )
+
 
 def asdict_shallow(obj):
     return dict((field.name, getattr(obj, field.name)) for field in fields(obj))
+
 
 def is_trial_selector(value) -> bool:    
     return (
         isinstance(value, dict) or isinstance(value, DictConfig)
         and 'type' in value
     )
-
-
-@dataclass
-class OptunaParams(object):
-
-    # TODO: This does not support
-    # "Selectors"
-    def load_state_dict(self, state_dict: dict):
-        for k, _ in asdict(self).items():
-            setattr(self, k, state_dict[k])
-
-    # TODO: doesn't work with selectors
-    def state_dict(self):
-        return asdict(self)
-    
-    def __post_init__(self):
-        self._extra = []
-    
-    def to_dict(self):
-
-        result = dict()
-        for k, v in asdict(self).items():
-            if (
-                isinstance(v, OptunaSelector) or 
-                isinstance(v, TrialSelector) or
-                isinstance(v, OptunaParams)
-            ):
-                result[k] = v.to_dict()
-            else:
-                result[k] = v
-        
-        return result
-
-    @classmethod
-    def from_dict(cls, **overrides: dict):
-        data_fields = {item.name: item for item in fields(cls)}
-
-        args = []
-        updated = dict()
-        for k, v in overrides.items():
-            if k == 'type':
-                continue
-            elif k not in data_fields:
-                updated[k] = v
-            elif data_fields[k].type == OptunaSelector:
-                updated[k] = data_fields[k].type(**v)
-            elif isinstance(data_fields[k].type, type) and issubclass(data_fields[k].type, OptunaParams):
-                updated[k] = data_fields[k].type.from_dict(**v)
-            elif is_trial_selector(v):
-                updated[k] = ParamMap[v['type']].from_dict(**v)
-            else:
-                updated[k] = v
-        result = cls(*args, **updated)
-        return result
-    
-    def define(self, **kwargs):
-        return self.__class__(**kwargs)
-    
-    def extra_params(self) -> typing.Iterator:
-        for k in self._extra:
-            yield k, getattr(self, k)
-
-    def suggest(self, trial=None, path: str=''):
-        """Suggest params
-
-        Args:
-            trial (_type_, optional): optuna.Trial. Defaults to None.
-            path (str, optional): path for the variable. Defaults to ''.
-
-        Returns:
-            OptunaParams
-        """
-        args = {}
-        params = asdict_shallow(self)
-        for k, v in chain(params.items(), self.extra_params()):
-            if isinstance(v, TrialSelector):
-                if trial is None:
-                    args[k] = v.default
-                else:
-                    args[k] = v.suggest(trial, path)
-            elif isinstance(v, OptunaParams):
-                args[k] = v.suggest(trial, path)
-            else:
-                args[k] = v
-        
-        result = self.__class__(**args)
-        return result
-    
-    @property
-    def defined(self):
-
-        params = asdict(self)
-        for k, v in chain(params.items(), self.extra_params()):
-            if isinstance(v, TrialSelector):
-                return False
-            if isinstance(v, OptunaParams):
-                if not v.defined:
-                    return False
-        return True
-
-
-@dataclass
-class Validation(object):
-
-    params: OptunaParams
-    score: float
-    maximize: bool
-    for_validation: bool
-    trial_params: dict
-
-    def bests(self, other: 'Validation') -> 'Validation':
-        if self.maximize and other.maximize:
-            return self if self.score > other.score else other
-
-        elif not self.maximize and not other.maximize:
-            return self if self.score < other.score else other
-
-        raise ValueError(
-            'Cannot compare two summaries unless the value for maximize is the same: ' 
-            f'Self: {self.maximize} Other: {other.maximize}'
-        )
-
-    def load_state_dict(self, state_dict):
-
-        self.params.load_state_dict(state_dict['params'])
-        self.score = state_dict['score']
-        self.maximize = state_dict['maximize']
-        self.trial_params = state_dict['trial_params']
-        self.for_validation = state_dict['for_validation']
-
-    def state_dict(self):
-
-        state_dict_ = {}
-        state_dict_['score'] = self.score
-        state_dict_['maximize'] = self.maximize
-        state_dict_['trial_params'] = self.trial_params
-        state_dict_['params'] = self.params.state_dict()
-        state_dict_['for_validation'] = self.for_validation
-        return state_dict_
-
-
-class Experiment(ABC):
-
-    @abstractmethod
-    def run(self) -> Validation:
-        raise NotImplementedError
-
-
-Selection = typing.Dict[str, typing.Type[OptunaParams]]
-ParamArg = typing.Union[OptunaParams, dict]
-
-
-class ParamClass(object):
-
-    class Params(OptunaParams):
-        pass
-
-    def __init__(self, param_overrides: dict=None):
-        param_overrides = param_overrides or {}
-        self._params_base = self.Params.from_dict(**param_overrides)
-
-    def to_dict(self):
-
-        return dict(
-            params=self._params_base.to_dict()
-        )
-    
-    @classmethod
-    def from_dict(cls, **overrides):
-
-        return cls(selected=overrides['params'])
-
-@dataclass
-class OptunaSelector(object):
-
-    selected: str
-    params: InitVar[ParamArg] = None
-    selections: typing.ClassVar[Selection] = {}
-
-    def to_dict(self):
-
-        return dict(
-            selected=self.selected,
-            selection=self.selection.to_dict()
-        )
-    
-    @classmethod
-    def from_dict(cls, **overrides):
-
-        return cls(selected=overrides['selected'], params=overrides['selection'])
-
-    def __post_init__(self, params):
-        params = params or {}
-
-        if isinstance(params, OptunaParams):
-            self.selection = self.selections[self.selected](params)
-        else:
-            self.selection = self.selections[self.selected].from_dict(
-                **params
-            )
-    
-
-class OptunaExperiment(ParamClass):
-
-    def __init__(self, param_overrides: dict=None):
-        super().__init__(param_overrides)
-        self._params = self._params_base.suggest()
-
-    def reset(self):
-        self._params = self._params_base.suggest()
-    
-    @property
-    def params(self):
-        return self._params
-
-    @params.setter
-    def params(self, params):
-        self._params = params
-
-    @abstractmethod
-    def trial_experiment(self, trial: optuna.Trial, path: str='') -> Validation:
-        raise NotImplementedError
-
-    @abstractmethod
-    def experiment(self, params: OptunaParams) -> Validation:
-        raise NotImplementedError
 
 
 class Study(ABC):
@@ -714,53 +520,110 @@ class Study(ABC):
         raise NotImplementedError
 
 
+@dataclass
+class Experiment(object):
+
+    name: str
+    score: float
+    chart: teach.Chart
+    learner_params: Params
+    teacher_params: Params
+
+
+class ExperimentLog(object):
+
+    def __init__(self, maximize: bool):
+        self.maximize = maximize
+        self._experiments: typing.List[Experiment] = []
+    
+    def add(self, experiment: Experiment):
+        self._experiments.append(experiment)
+
+    def best(self) -> typing.Tuple[int, Experiment]:
+        if self.maximize:
+            return functools.reduce(
+                lambda x, y: x if x.score[1] > y.score[1] else y,
+                enumerate(self._experiments)
+            )
+        return functools.reduce(
+            lambda x, y: x if x.score[1] < y.score[1] else y,
+            enumerate(self._experiments)
+        )
+
+
 class OptunaStudy(Study):
 
     best_idx = 'BEST'
     final_idx = 'FINAL'
 
-    @staticmethod
-    def get_direction(to_maximize):
-        return optuna.study.StudyDirection.MAXIMIZE if to_maximize else optuna.study.StudyDirection.MINIMIZE
-
     def __init__(
-        self, experiment: OptunaExperiment, base_name: str, n_trials: int, to_maximize: bool
+        self, learner_factory: LearnerFactory, learner_params: Params=None, 
+        batch_size: int=64, n_epochs: int=10, base_name: str='', 
+        maximize: bool=False, device: str='cpu'
     ):
-        self._experiment = experiment
+        """initializer
+
+        Args:
+            learner_factory (LearnerFactory): 
+            learner_params (Params, optional): . Defaults to None.
+            batch_size (int, optional): . Defaults to 64.
+            n_epochs (int, optional): . Defaults to 10.
+            base_name (str, optional): . Defaults to ''.
+            maximize (bool, optional): . Defaults to False.
+            device (str, optional): . Defaults to 'cpu'.
+        """
+        self._learner_factory = learner_factory
+        self._learner_params = learner_params
+        self._teacher_factory: TeacherFactory = teach.MainTeacher
+        self._teacher_params = {'batch_size': batch_size, 'n_epochs': n_epochs}
         self._base_name = base_name
-        self._n_trials = n_trials
-        self._direction = self.get_direction(to_maximize)
+        self._device = device
+        self._maximize = maximize
+        self._direction = self.get_direction(self._maximize)
+
+    def update_teacher(self, teacher_factory: TeacherFactory, params: Params):
+        """Update the teacher factory to use
+
+        Args:
+            teacher_factory (TeacherFactory): 
+            params (Params): 
+        """
+        self._teacher_factory = teacher_factory
+        self._teacher_params = params
     
-    def get_objective(self, summaries: typing.Dict) -> typing.Callable:
+    def get_objective(self, experiments: ExperimentLog) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
             nonlocal cur
-            nonlocal summaries
-            summary = self._experiment.trial_experiment(trial)
-            if self.best_idx not in summaries:
-                summaries[self.best_idx] = summary
-            else:
-                summaries[self.best_idx] = summary.bests(summaries[self.best_idx])
+            nonlocal experiments
 
-            summaries[cur] = summary
+            teacher_params = self._teacher_params.suggest(trial, self._base_name)
+            learner_params = self._learner_params.suggest(trial, self._base_name)
+            learner = self._learner_factory(**learner_params)
+            teacher = self._teacher_factory(**teacher_params)
+
+            score, chart = teacher.validate(learner)
+            experiments.add(Experiment(str(cur), score, chart, learner_params, teacher_params))
+
             cur += 1
-            return summary.score
+            return score
         return objective
     
-    @property
-    def experiment(self) -> OptunaExperiment:
-        return self._experiment
+    def run_trials(self, n_trials: int) -> typing.List[Experiment]:
 
-    def run(self, name) -> typing.Tuple[Validation, typing.Dict[str, Validation]]:
-
-        summaries: typing.Dict[str, Validation] = {}
+        experiment_log = ExperimentLog(self._maximize)
         optuna_study = optuna.create_study(direction=self._direction)
-        objective = self.get_objective(summaries)
-        optuna_study.optimize(objective, self._n_trials)
-        summary = self._experiment.experiment(summaries[self.best_idx].params)
-        summaries[self.final_idx] = summary
-        return summary, summaries
+        objective = self.get_objective(experiment_log)
+        optuna_study.optimize(objective, n_trials)
+
+        _, best = experiment_log.best()
+        teacher = self._teacher_factory(**best.teacher_params)
+        learner = self._learner_factory(**best.learner_params)
+        score, chart = teacher.train(learner)
+        final = Experiment("best", score, chart, best.learner_params, best.teacher_params)
+        experiment_log.add(final)
+        return final, experiment_log
 
 
 class Config:
@@ -783,7 +646,7 @@ class HydraStudyConfig(object):
             cfg.paths
         )
         self._cfg = cfg
-        self._params = convert_params(self.experiment_cfg)
+        self._params = to_params(self.experiment_cfg)
 
     # TODO: Ensure i can use this
     @property
@@ -827,35 +690,6 @@ class HydraStudyConfig(object):
         return self.study_cfg.maximize
     
     @property
-    def params(self) -> OptunaParams:
+    def params(self) -> Params:
         return self._params
     
-    def create_study(self, experiment_cls: typing.Type[OptunaExperiment]):
-        # cur = self.study_cfg
-        experiment = experiment_cls(self.params, device=self.device)
-        return OptunaStudy(experiment, self.name, self.n_trials, self.maximize)
-
-    def create_experiment(self, experiment_cls: typing.Type[OptunaExperiment]):
-        params = convert_params(self.experiment_cfg)
-        return experiment_cls(params, device=self.device)
-
-
-def flatten_params(d: dict, prepend=None):
-
-    flattened = {}
-
-    for k, v in d.items():
-        
-        name = f'{prepend}/{k}' if prepend is not None else k
-
-        if isinstance(v, dict):
-            flattened.update(
-                flatten_params(v, name)
-            )
-        elif isinstance(v, tuple) or isinstance(v, list):
-            flattened.update(
-                flatten_params(dict(enumerate(v)), name)
-            )
-        else:
-            flattened[name] = v
-    return flattened
