@@ -1,2 +1,2 @@
 from ._study import *
-from . import study
+from . import study2

@@ -485,7 +485,7 @@ class Params(object):
             cur = cur[k]
         cur.update(**kwargs)
 
-    def get(self, key: str):
+    def get_sub(self, key: str):
         return Params(self._params[key])
 
 
