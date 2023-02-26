@@ -470,6 +470,23 @@ class Params(object):
                 result[k] = v
 
         return result
+    
+    def update(self, **kwargs):
+        self._params.update(**kwargs)
+
+    def update_sub(self, sub: typing.List[str], **kwargs):
+        """update sub dictionary
+
+        Args:
+            sub (typing.List[str]): The sub parameter dicts to update
+        """
+        cur = self._params
+        for k in sub:
+            cur = cur[k]
+        cur.update(**kwargs)
+
+    def get(self, key: str):
+        return Params(self._params[key])
 
 
 def convert_params(trial_param_config: typing.Dict) -> typing.Dict:
