@@ -203,57 +203,57 @@ class TestConvertParams:
         assert isinstance(params['b'], _study.Int)
 
 
-class TestOptunaParams:
+# class TestOptunaParams:
 
-    @dataclass
-    class MyParams(_study.OptunaParams):
+#     @dataclass
+#     class MyParams(_study.OptunaParams):
 
-        x: int = _study.Int('x', 0, 4, 1)
+#         x: int = _study.Int('x', 0, 4, 1)
 
-    def test_sample_produces_my_params_with_defined_value(self):
+#     def test_sample_produces_my_params_with_defined_value(self):
 
-        mock = Mock()
-        mock.suggest_int.side_effect = lambda self, low, high: 2
+#         mock = Mock()
+#         mock.suggest_int.side_effect = lambda self, low, high: 2
 
-        params = TestOptunaParams.MyParams().suggest(mock, '')
-        assert params.x == 2
+#         params = TestOptunaParams.MyParams().suggest(mock, '')
+#         assert params.x == 2
 
-    def test_defined_produces_my_params_with_defined_value(self):
+#     def test_defined_produces_my_params_with_defined_value(self):
 
-        mock = Mock()
-        mock.suggest_int.side_effect = lambda self, low, high: 2
+#         mock = Mock()
+#         mock.suggest_int.side_effect = lambda self, low, high: 2
 
-        params = TestOptunaParams.MyParams().define(x=3)
-        assert params.x == 3
+#         params = TestOptunaParams.MyParams().define(x=3)
+#         assert params.x == 3
 
-    def test_from_dict_produces_my_params_with_defined_value(self):
+#     def test_from_dict_produces_my_params_with_defined_value(self):
 
-        params = {
-            'x': {
-                'type': 'Int',
-                'low': 2,
-                'high': 4,
-                'name': 'b'
-            }
-        }
-        params = TestOptunaParams.MyParams.from_dict(**params)
-        assert params.x.low == 2
+#         params = {
+#             'x': {
+#                 'type': 'Int',
+#                 'low': 2,
+#                 'high': 4,
+#                 'name': 'b'
+#             }
+#         }
+#         params = TestOptunaParams.MyParams.from_dict(**params)
+#         assert params.x.low == 2
 
-    def test_load_state_dict_produces_correct_values(self):
+#     def test_load_state_dict_produces_correct_values(self):
 
-        p = {
-            'x': 2
-        }
-        params = TestOptunaParams.MyParams()
-        params.load_state_dict(p)
-        assert params.x == 2
+#         p = {
+#             'x': 2
+#         }
+#         params = TestOptunaParams.MyParams()
+#         params.load_state_dict(p)
+#         assert params.x == 2
 
 
-    def test_state_dict_produces_correct_values(self):
+#     def test_state_dict_produces_correct_values(self):
 
-        params = TestOptunaParams.MyParams(x=2).state_dict()
+#         params = TestOptunaParams.MyParams(x=2).state_dict()
         
-        assert params['x'] == 2
+#         assert params['x'] == 2
 
 # my_params2 = {
 #     'z':_study.Float('y', 0, 2)

@@ -1,6 +1,5 @@
 # 1st party
 from abc import ABC, abstractmethod, abstractproperty
-from abc import ABC, abstractmethod
 from dataclasses import InitVar, dataclass, fields, field
 from dataclasses import asdict, dataclass
 import typing
