@@ -23,12 +23,11 @@ import functools
 # my libraries
 from octako.components import Learner
 from octako import teach
+import octako
 
 
 PDELIM = "/"
 
-LearnerFactory = typing.Callable[[typing.Any], Learner]
-TeacherFactory = typing.Callable[[typing.Any], teach.Teacher]
 
 
 class TrialSelector(ABC):
@@ -532,6 +531,32 @@ def is_trial_selector(value) -> bool:
     )
 
 
+class LearnerFactory(object):
+
+    @abstractmethod
+    def __call__(self, params: Params, maximize: bool) -> octako.Learner:
+        pass
+
+
+class LMFactory(LearnerFactory):
+
+    def __init__(self, lm_cls: typing.Type[octako.zen.LearningMachine], device):
+        self.lm_cls = lm_cls
+        self.device = device
+
+    def __call__(self, params: Params, maximize: bool) -> octako.zen.LearningMachine:
+        lm = self.lm_cls(**params.to_dict(), maximize=maximize)
+        lm.to(self.device)
+        return lm
+
+
+class TeacherFactory(object):
+
+    @abstractmethod
+    def __call__(self, params: Params) -> teach.Teacher:
+        pass
+
+
 # class Study(ABC):
     
 #     @abstractmethod
@@ -607,12 +632,13 @@ class StandardStudyBuilder(StudyBuilder):
 
     batch_size: int
     n_epochs: int
+    maximize: bool
     learner_factory: LearnerFactory
     learner_params: Params
     dataset_loader: teach.DatasetLoader
 
     def learner(self) -> Learner:
-        return self.learner_factory(self.learner_params.to_dict())
+        return self.learner_factory(self.learner_params, self.maximize)
     
     def teacher(self) -> teach.MainTeacher:
         return teach.MainTeacher(
@@ -683,7 +709,7 @@ class OptunaStudy(object):
 
     @classmethod
     def build_standard(
-        cls, batch_size: int, n_epochs: int, learner_factory: LearnerFactory, 
+        cls, batch_size: int, n_epochs: int, learner_factory: 'LMFactory', 
         learner_params: Params, dataset_loader: teach.DatasetLoader, maximize: bool
     ):
         """Build an OptunaStudy
@@ -700,7 +726,7 @@ class OptunaStudy(object):
         """
         return OptunaStudy(
             StandardStudyBuilder(
-                batch_size, n_epochs, learner_factory, 
+                batch_size, n_epochs, maximize, learner_factory,  
                 learner_params, dataset_loader
             ), maximize
         )
@@ -709,15 +735,15 @@ class OptunaStudy(object):
     def get_direction(to_maximize):
         return optuna.study.StudyDirection.MAXIMIZE if to_maximize else optuna.study.StudyDirection.MINIMIZE
 
-    def update_teacher(self, teacher_factory: TeacherFactory, params: Params):
-        """Update the teacher factory to use
+    # def update_teacher(self, teacher_factory: 'TeacherFactory', params: Params):
+    #     """Update the teacher factory to use
 
-        Args:
-            teacher_factory (TeacherFactory): 
-            params (Params): 
-        """
-        self._teacher_factory = teacher_factory
-        self._teacher_params = params
+    #     Args:
+    #         teacher_factory (TeacherFactory): 
+    #         params (Params): 
+    #     """
+    #     self._teacher_factory = teacher_factory
+    #     self._teacher_params = params
     
     def get_objective(self, experiments: ExperimentLog) -> typing.Callable:
         cur: int = 0
