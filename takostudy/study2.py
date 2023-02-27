@@ -545,8 +545,7 @@ class Experiment(object):
     name: str
     score: float
     chart: teach.Chart
-    learner_params: Params
-    teacher_params: Params
+    study_builder: 'StudyBuilder'
 
 
 class ExperimentLog(object):
@@ -580,6 +579,10 @@ class StudyBuilder(ABC):
     @abstractmethod
     def learner(self) -> Learner:
         pass
+    
+    @abstractmethod
+    def teacher(self) -> teach.Teacher:
+        pass
 
     @abstractmethod
     def dataset_loader(self) -> teach.DatasetLoader:
@@ -610,6 +613,12 @@ class StandardStudyBuilder(StudyBuilder):
 
     def learner(self) -> Learner:
         return self.learner_factory(self.learner_params.to_dict())
+    
+    def teacher(self) -> teach.MainTeacher:
+        return teach.MainTeacher(
+            self.batch_size, self.n_epochs, self.dataset_loader(),
+            loss_window=30
+        )
 
     def dataset_loader(self) -> teach.DatasetLoader:
         return self.dataset_loader
@@ -717,17 +726,12 @@ class OptunaStudy(object):
             nonlocal cur
             nonlocal experiments
 
-            self._study_builder.suggest(trial)
-
-            # TODO: UPDATE
-
-            teacher_params = self._teacher_params.suggest(trial, self._base_name)
-            learner_params = self._learner_params.suggest(trial, self._base_name)
-            learner = self._learner_factory(**learner_params.to_dict())
-            teacher = self._teacher_factory(**teacher_params.to_dict())
+            study_builder = self._study_builder.suggest(trial)
+            teacher = study_builder.teacher()
+            learner = study_builder.learner()
 
             score, chart = teacher.validate(learner)
-            experiments.add(Experiment(str(cur), score, chart, learner_params, teacher_params))
+            experiments.add(Experiment(str(cur), score, chart, study_builder))
 
             cur += 1
             return score
@@ -741,10 +745,11 @@ class OptunaStudy(object):
         optuna_study.optimize(objective, n_trials)
 
         _, best = experiment_log.best()
-        teacher = self._teacher_factory(**best.teacher_params)
-        learner = self._learner_factory(**best.learner_params)
+        teacher = best.study_builder.teacher()
+        learner = best.study_builder.learner()
+
         score, chart = teacher.train(learner)
-        final = Experiment("best", score, chart, best.learner_params, best.teacher_params)
+        final = Experiment("best", score, chart, best)
         experiment_log.add(final)
         return final, experiment_log
 
