@@ -570,6 +570,42 @@ class ExperimentLog(object):
         )
 
 
+@dataclass
+class StudyParams:
+    """Store experiment params in a single dataclass to organize them
+    effectively
+    Subclasses must be dataclasses
+    """
+
+    def subset_to_params(self, keys: typing.Iterable[str]) -> Params:
+        """
+        Args:
+            keys (typing.Iterable[str]): keys to retrieve
+
+        Returns:
+            Params: Subset of the parameters in the store
+        """
+        keys = set(keys)
+        try:
+            return Params(
+                {k: v for k, v in 
+                asdict(self).items() if k in keys}
+            )
+        except KeyError:
+            not_included = keys.difference(set(asdict(self).keys()))
+            raise KeyError(
+                "Keys must all be in StudyParams "
+                f"but could not find {not_included}"
+            )
+
+    def to_params(self) -> Params:
+        """
+        Returns:
+            Params: The param store converted to Params
+        """
+        return Params(asdict(self))
+
+
 class OptunaStudy(object):
 
     best_idx = 'BEST'
