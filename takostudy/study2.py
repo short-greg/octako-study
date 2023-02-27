@@ -534,7 +534,7 @@ def is_trial_selector(value) -> bool:
 class LearnerFactory(object):
 
     @abstractmethod
-    def __call__(self, params: Params, maximize: bool) -> octako.Learner:
+    def __call__(self, params: Params) -> octako.Learner:
         pass
 
 
@@ -544,8 +544,8 @@ class LMFactory(LearnerFactory):
         self.lm_cls = lm_cls
         self.device = device
 
-    def __call__(self, params: Params, maximize: bool) -> octako.zen.LearningMachine:
-        lm = self.lm_cls(**params.to_dict(), maximize=maximize)
+    def __call__(self, params: Params) -> octako.zen.LearningMachine:
+        lm = self.lm_cls(**params.to_dict())
         lm.to(self.device)
         return lm
 
@@ -594,7 +594,6 @@ class ExperimentLog(object):
         )
 
 
-
 class StudyBuilder(ABC):
     """Store experiment params in a single dataclass to organize them
     effectively
@@ -630,29 +629,31 @@ class StudyBuilder(ABC):
 @dataclass
 class StandardStudyBuilder(StudyBuilder):
 
+    lesson_name: str
     batch_size: int
     n_epochs: int
     maximize: bool
     learner_factory: LearnerFactory
     learner_params: Params
-    dataset_loader: teach.DatasetLoader
+    dataset_loader_: teach.DatasetLoader
 
     def learner(self) -> Learner:
-        return self.learner_factory(self.learner_params, self.maximize)
+        return self.learner_factory(self.learner_params)
     
     def teacher(self) -> teach.MainTeacher:
         return teach.MainTeacher(
+            self.lesson_name,
             self.batch_size, self.n_epochs, self.dataset_loader(),
             loss_window=30
         )
 
     def dataset_loader(self) -> teach.DatasetLoader:
-        return self.dataset_loader
+        return self.dataset_loader_
     
     def suggest(self, trial: optuna.Trial, path: str='') -> 'StudyBuilder':
         
         kwargs = {}
-        for k, v in asdict(self):
+        for k, v in asdict(self).items():
             if isinstance(v, TrialSelector):
                 kwargs[k] = v.select(trial, path)
             else: kwargs[k] = v
@@ -661,7 +662,7 @@ class StandardStudyBuilder(StudyBuilder):
 
     def default(self) -> 'StandardStudyBuilder':
         kwargs = {}
-        for k, v in asdict(self):
+        for k, v in asdict(self).items():
             if isinstance(v, TrialSelector):
                 kwargs[k] = v.default
             else: kwargs[k] = v
@@ -709,7 +710,7 @@ class OptunaStudy(object):
 
     @classmethod
     def build_standard(
-        cls, batch_size: int, n_epochs: int, learner_factory: 'LMFactory', 
+        cls, lesson_name: str, batch_size: int, n_epochs: int, learner_factory: 'LMFactory', 
         learner_params: Params, dataset_loader: teach.DatasetLoader, maximize: bool
     ):
         """Build an OptunaStudy
@@ -726,7 +727,7 @@ class OptunaStudy(object):
         """
         return OptunaStudy(
             StandardStudyBuilder(
-                batch_size, n_epochs, maximize, learner_factory,  
+                lesson_name, batch_size, n_epochs, maximize, learner_factory,  
                 learner_params, dataset_loader
             ), maximize
         )
