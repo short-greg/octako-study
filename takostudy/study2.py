@@ -458,17 +458,20 @@ class Params(object):
             else:
                 params[k] = v
 
-        return Params(**params)
-
-    def to_dict(self) -> typing.Dict:
+        return Params(params)
+    
+    def default(self) -> 'Params':
         result = {}
-        for k, v in self._params:
+        for k, v in self._params.items():
             if isinstance(v, TrialSelector):
                 result[k] = v.default
             else:
                 result[k] = v
 
-        return result
+        return Params(result)
+
+    def to_dict(self) -> typing.Dict:
+        return self._params
     
     def update(self, **kwargs):
         self._params.update(**kwargs)
@@ -529,11 +532,11 @@ def is_trial_selector(value) -> bool:
     )
 
 
-class Study(ABC):
+# class Study(ABC):
     
-    @abstractmethod
-    def run(self, name: str) -> dict:
-        raise NotImplementedError
+#     @abstractmethod
+#     def run(self, name: str) -> dict:
+#         raise NotImplementedError
 
 
 @dataclass
@@ -567,13 +570,15 @@ class ExperimentLog(object):
         )
 
 
-class OptunaStudy(Study):
+class OptunaStudy(object):
 
     best_idx = 'BEST'
     final_idx = 'FINAL'
 
     def __init__(
-        self, learner_factory: LearnerFactory, learner_params: Params=None, 
+        self, learner_factory: LearnerFactory, 
+        dataset_loader: teach.DatasetLoader,
+        learner_params: Params=None,
         batch_size: int=64, n_epochs: int=10, base_name: str='', 
         maximize: bool=False, device: str='cpu'
     ):
@@ -588,14 +593,22 @@ class OptunaStudy(Study):
             maximize (bool, optional): . Defaults to False.
             device (str, optional): . Defaults to 'cpu'.
         """
+        # TODO: generalize this and add a class method to simplify creating
+        # standard studies
         self._learner_factory = learner_factory
         self._learner_params = learner_params
         self._teacher_factory: TeacherFactory = teach.MainTeacher
-        self._teacher_params = {'batch_size': batch_size, 'n_epochs': n_epochs}
+        self._teacher_params = Params(
+            {'batch_size': batch_size, 'n_epochs': n_epochs, 'dataset_loader': dataset_loader}
+        )
         self._base_name = base_name
         self._device = device
         self._maximize = maximize
         self._direction = self.get_direction(self._maximize)
+
+    @staticmethod
+    def get_direction(to_maximize):
+        return optuna.study.StudyDirection.MAXIMIZE if to_maximize else optuna.study.StudyDirection.MINIMIZE
 
     def update_teacher(self, teacher_factory: TeacherFactory, params: Params):
         """Update the teacher factory to use
@@ -616,8 +629,8 @@ class OptunaStudy(Study):
 
             teacher_params = self._teacher_params.suggest(trial, self._base_name)
             learner_params = self._learner_params.suggest(trial, self._base_name)
-            learner = self._learner_factory(**learner_params)
-            teacher = self._teacher_factory(**teacher_params)
+            learner = self._learner_factory(**learner_params.to_dict())
+            teacher = self._teacher_factory(**teacher_params.to_dict())
 
             score, chart = teacher.validate(learner)
             experiments.add(Experiment(str(cur), score, chart, learner_params, teacher_params))
@@ -662,12 +675,12 @@ class HydraStudyConfig(object):
             cfg.paths
         )
         self._cfg = cfg
-        self._params = to_params(self.experiment_cfg)
+        # self._params = to_params(self.experiment_cfg)
 
     # TODO: Ensure i can use this
-    @property
-    def experiment(self):
-        return self._cfg.experiment
+    # @property
+    # def experiment(self):
+    #     return self._cfg.experiment
     
     @property
     def experiment_type(self):
@@ -685,9 +698,9 @@ class HydraStudyConfig(object):
     def study_cfg(self):
         return self._cfg.study
 
-    @property
-    def experiment_cfg(self):
-        return self.study_cfg['experiment']
+    # @property
+    # def experiment_cfg(self):
+    #     return self.study_cfg['experiment']
 
     @property
     def device(self):
@@ -705,7 +718,7 @@ class HydraStudyConfig(object):
     def maximize(self) -> bool:
         return self.study_cfg.maximize
     
-    @property
-    def params(self) -> Params:
-        return self._params
+    # @property
+    # def params(self) -> Params:
+    #     return self._params
     
