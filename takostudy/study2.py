@@ -570,40 +570,68 @@ class ExperimentLog(object):
         )
 
 
-@dataclass
-class StudyParams:
+
+class StudyBuilder(ABC):
     """Store experiment params in a single dataclass to organize them
     effectively
     Subclasses must be dataclasses
     """
 
-    def subset_to_params(self, keys: typing.Iterable[str]) -> Params:
-        """
-        Args:
-            keys (typing.Iterable[str]): keys to retrieve
+    @abstractmethod
+    def learner(self) -> Learner:
+        pass
 
-        Returns:
-            Params: Subset of the parameters in the store
-        """
-        keys = set(keys)
-        try:
-            return Params(
-                {k: v for k, v in 
-                asdict(self).items() if k in keys}
-            )
-        except KeyError:
-            not_included = keys.difference(set(asdict(self).keys()))
-            raise KeyError(
-                "Keys must all be in StudyParams "
-                f"but could not find {not_included}"
-            )
+    @abstractmethod
+    def dataset_loader(self) -> teach.DatasetLoader:
+        pass
+    
+    @abstractmethod
+    def suggest(self, trial: optuna.Trial) -> 'StudyBuilder':
+        pass
 
-    def to_params(self) -> Params:
-        """
-        Returns:
-            Params: The param store converted to Params
-        """
-        return Params(asdict(self))
+    @abstractmethod
+    def default(self) -> 'StudyBuilder':
+        pass
+
+    def dict_update(self, update_params: typing.Dict):
+        kwargs = asdict(self)
+        kwargs.update(update_params)
+        return self.__class__(**kwargs)
+
+
+@dataclass
+class StandardStudyBuilder(StudyBuilder):
+
+    batch_size: int
+    n_epochs: int
+    learner_factory: LearnerFactory
+    learner_params: Params
+    dataset_loader: teach.DatasetLoader
+
+    def learner(self) -> Learner:
+        return self.learner_factory(self.learner_params.to_dict())
+
+    def dataset_loader(self) -> teach.DatasetLoader:
+        return self.dataset_loader
+    
+    def suggest(self, trial: optuna.Trial, path: str='') -> 'StudyBuilder':
+        
+        kwargs = {}
+        for k, v in asdict(self):
+            if isinstance(v, TrialSelector):
+                kwargs[k] = v.select(trial, path)
+            else: kwargs[k] = v
+        kwargs['learner_params'] = self.learner_params.suggest(trial, path)
+        return StandardStudyBuilder(**kwargs)
+
+    def default(self) -> 'StandardStudyBuilder':
+        kwargs = {}
+        for k, v in asdict(self):
+            if isinstance(v, TrialSelector):
+                kwargs[k] = v.default
+            else: kwargs[k] = v
+        kwargs['learner_params'] = self.learner_params.default()
+        return StandardStudyBuilder(**kwargs)
 
 
 class OptunaStudy(object):
@@ -612,11 +640,12 @@ class OptunaStudy(object):
     final_idx = 'FINAL'
 
     def __init__(
-        self, learner_factory: LearnerFactory, 
-        dataset_loader: teach.DatasetLoader,
-        learner_params: Params=None,
-        batch_size: int=64, n_epochs: int=10, base_name: str='', 
-        maximize: bool=False, device: str='cpu'
+        self, study_builder: StudyBuilder, maximize: bool
+        # learner_factory: LearnerFactory, 
+        # dataset_loader: teach.DatasetLoader,
+        # learner_params: Params=None,
+        # batch_size: int=64, n_epochs: int=10, base_name: str='', 
+        # maximize: bool=False, device: str='cpu'
     ):
         """initializer
 
@@ -629,18 +658,43 @@ class OptunaStudy(object):
             maximize (bool, optional): . Defaults to False.
             device (str, optional): . Defaults to 'cpu'.
         """
+        self._maximize = maximize
+        self._study_builder = study_builder
+        self._direction = self.get_direction(self._maximize)
         # TODO: generalize this and add a class method to simplify creating
         # standard studies
-        self._learner_factory = learner_factory
-        self._learner_params = learner_params
-        self._teacher_factory: TeacherFactory = teach.MainTeacher
-        self._teacher_params = Params(
-            {'batch_size': batch_size, 'n_epochs': n_epochs, 'dataset_loader': dataset_loader}
+        # self._learner_factory = learner_factory
+        # self._learner_params = learner_params
+        # self._teacher_factory: TeacherFactory = teach.MainTeacher
+        # self._teacher_params = Params(
+        #     {'batch_size': batch_size, 'n_epochs': n_epochs, 'dataset_loader': dataset_loader}
+        # )
+        # self._base_name = base_name
+        # self._device = device
+
+    @classmethod
+    def build_standard(
+        cls, batch_size: int, n_epochs: int, learner_factory: LearnerFactory, 
+        learner_params: Params, dataset_loader: teach.DatasetLoader, maximize: bool
+    ):
+        """Build an OptunaStudy
+
+        Args:
+            batch_size (int): _description_
+            n_epochs (int): _description_
+            learner_factory (LearnerFactory): _description_
+            learner_params (Params): _description_
+            dataset_loader (teach.DatasetLoader): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        return OptunaStudy(
+            StandardStudyBuilder(
+                batch_size, n_epochs, learner_factory, 
+                learner_params, dataset_loader
+            ), maximize
         )
-        self._base_name = base_name
-        self._device = device
-        self._maximize = maximize
-        self._direction = self.get_direction(self._maximize)
 
     @staticmethod
     def get_direction(to_maximize):
@@ -662,6 +716,10 @@ class OptunaStudy(object):
         def objective(trial: optuna.Trial):
             nonlocal cur
             nonlocal experiments
+
+            self._study_builder.suggest(trial)
+
+            # TODO: UPDATE
 
             teacher_params = self._teacher_params.suggest(trial, self._base_name)
             learner_params = self._learner_params.suggest(trial, self._base_name)
