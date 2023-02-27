@@ -585,11 +585,11 @@ class ExperimentLog(object):
     def best(self) -> typing.Tuple[int, Experiment]:
         if self.maximize:
             return functools.reduce(
-                lambda x, y: x if x.score[1] > y.score[1] else y,
+                lambda x, y: x if x[1].score > y[1].score else y,
                 enumerate(self._experiments)
             )
         return functools.reduce(
-            lambda x, y: x if x.score[1] < y.score[1] else y,
+            lambda x, y: x if x[1].score < y[1].score else y,
             enumerate(self._experiments)
         )
 
@@ -612,13 +612,25 @@ class StudyBuilder(ABC):
     def dataset_loader(self) -> teach.DatasetLoader:
         pass
     
-    @abstractmethod
-    def suggest(self, trial: optuna.Trial) -> 'StudyBuilder':
-        pass
+    def suggest(self, trial: optuna.Trial, path: str='') -> 'StudyBuilder':
+        kwargs = {}
+        for k, v in asdict(self).items():
+            if isinstance(v, TrialSelector):
+                kwargs[k] = v.suggest(trial, path)
+            elif isinstance(v, Params):
+                kwargs[k] = v.suggest(trial, path)
+            else: kwargs[k] = v
+        return self.__class__(**kwargs)
 
-    @abstractmethod
     def default(self) -> 'StudyBuilder':
-        pass
+        kwargs = {}
+        for k, v in asdict(self).items():
+            if isinstance(v, TrialSelector):
+                kwargs[k] = v.default
+            elif isinstance(v, Params):
+                kwargs[k] = v.default()
+            else: kwargs[k] = v
+        return self.__class__(**kwargs)
 
     def dict_update(self, update_params: typing.Dict):
         kwargs = asdict(self)
@@ -649,25 +661,7 @@ class StandardStudyBuilder(StudyBuilder):
 
     def dataset_loader(self) -> teach.DatasetLoader:
         return self.dataset_loader_
-    
-    def suggest(self, trial: optuna.Trial, path: str='') -> 'StudyBuilder':
-        
-        kwargs = {}
-        for k, v in asdict(self).items():
-            if isinstance(v, TrialSelector):
-                kwargs[k] = v.select(trial, path)
-            else: kwargs[k] = v
-        kwargs['learner_params'] = self.learner_params.suggest(trial, path)
-        return StandardStudyBuilder(**kwargs)
 
-    def default(self) -> 'StandardStudyBuilder':
-        kwargs = {}
-        for k, v in asdict(self).items():
-            if isinstance(v, TrialSelector):
-                kwargs[k] = v.default
-            else: kwargs[k] = v
-        kwargs['learner_params'] = self.learner_params.default()
-        return StandardStudyBuilder(**kwargs)
 
 
 class OptunaStudy(object):
