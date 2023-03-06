@@ -641,6 +641,10 @@ class ExperimentLog(object):
             lambda x, y: x if x[1].score < y[1].score else y,
             enumerate(self._experiments)
         )
+    
+    def summarize(self):
+        summaries = [experiment.summarize() for experiment in self._experiments]
+        return pd.concat(summaries)
 
 
 class StudyBuilder(ABC):
@@ -921,133 +925,133 @@ def mkdir(dir):
         os.makedirs(dir)
 
 
-class ResultManager(object):
+# class ResultManager(object):
 
-    EXPERIMENT_COL = 'Experiment'
-    DATASET_COL = 'Dataset' 
-    TRIAL_COL = 'Trial'
-    SCORE_COL = 'Score'
-    DATE_COL = "Date"
-    TIME_COL = "Time"
-    TEST_COL = "Test Type"
-    MACHINE_COL = "Machine Type"
-    STUDY_ID = "Study ID"
-    EXPERIMENT_ID = "Experiment ID"
-    DESCRIPTION_COL = "Description"
+#     EXPERIMENT_COL = 'Experiment'
+#     DATASET_COL = 'Dataset' 
+#     TRIAL_COL = 'Trial'
+#     SCORE_COL = 'Score'
+#     DATE_COL = "Date"
+#     TIME_COL = "Time"
+#     TEST_COL = "Test Type"
+#     MACHINE_COL = "Machine Type"
+#     STUDY_ID = "Study ID"
+#     EXPERIMENT_ID = "Experiment ID"
+#     DESCRIPTION_COL = "Description"
     
-    # TODO: STORE THE COLUMN USED BY AN EXPERIMENT SOMEWHERE
+#     # TODO: STORE THE COLUMN USED BY AN EXPERIMENT SOMEWHERE
 
-    def __init__(self, directory_path: str, study_name: str, load_if_available: bool=True):
-        """initializer
-        """
-        # load the results
-        self._directory_path = directory_path
-        # self._dataset = dataset
-        self._study_name = study_name
-        loaded = False
-        if load_if_available:
-            try:
-                self.reload_file()
-                loaded = True
-            except (FileNotFoundError, AttributeError):
-                loaded = False
+#     def __init__(self, directory_path: str, study_name: str, load_if_available: bool=True):
+#         """initializer
+#         """
+#         # load the results
+#         self._directory_path = directory_path
+#         # self._dataset = dataset
+#         self._study_name = study_name
+#         loaded = False
+#         if load_if_available:
+#             try:
+#                 self.reload_file()
+#                 loaded = True
+#             except (FileNotFoundError, AttributeError):
+#                 loaded = False
 
-        if not loaded:
-            self._info = {} # {self.DATASET_COL: self._dataset}
-            self._key_df = pd.DataFrame(
-                columns=[self.DATASET_COL, self.EXPERIMENT_COL, self.STUDY_ID, self.EXPERIMENT_ID, self.DESCRIPTION_COL]
-            )
-            self._result_df = pd.DataFrame(
-                columns=[self.DATASET_COL, self.EXPERIMENT_COL, self.STUDY_ID, self.EXPERIMENT_ID]
-            )
+#         if not loaded:
+#             self._info = {} # {self.DATASET_COL: self._dataset}
+#             self._key_df = pd.DataFrame(
+#                 columns=[self.DATASET_COL, self.EXPERIMENT_COL, self.STUDY_ID, self.EXPERIMENT_ID, self.DESCRIPTION_COL]
+#             )
+#             self._result_df = pd.DataFrame(
+#                 columns=[self.DATASET_COL, self.EXPERIMENT_COL, self.STUDY_ID, self.EXPERIMENT_ID]
+#             )
 
-    @property
-    def n_results(self):
-        return len(self._result_df)
+#     @property
+#     def n_results(self):
+#         return len(self._result_df)
     
-    @property
-    def n_experiments(self):
-        return len(self._key_df)
+#     @property
+#     def n_experiments(self):
+#         return len(self._key_df)
 
-    def add_experiment(
-        self, summary: Experiment
-    ) -> bool:
-        # case 1: 
+#     def add_experiment(
+#         self, summary: Experiment
+#     ) -> bool:
+#         # case 1: 
 
-        if self._key_df[self.EXPERIMENT_ID].str.contains(
-            summary.research_id.experiment_id
-        ).any():
-            return False
-        test_type = summary.test_type_to_str(summary.is_validation)
-        idx = len(self._key_df.index)
-        date_, time = summary.datetime_to_str(summary.research_id.experiment_date)
-        self._key_df.loc[idx] = {
-            self.EXPERIMENT_ID: summary.research_id.experiment_id, 
-            self.STUDY_ID: summary.research_id.study_id, 
-            self.EXPERIMENT_COL: summary.research_id.experiment_name, 
-            self.DATASET_COL: summary.dataset, 
-            self.DATE_COL: date_, 
-            self.TIME_COL: time, 
-            self.TEST_COL: test_type, 
-            self.DESCRIPTION_COL: summary.description
-        }
-        return True
+#         if self._key_df[self.EXPERIMENT_ID].str.contains(
+#             summary.research_id.experiment_id
+#         ).any():
+#             return False
+#         test_type = summary.test_type_to_str(summary.is_validation)
+#         idx = len(self._key_df.index)
+#         date_, time = summary.datetime_to_str(summary.research_id.experiment_date)
+#         self._key_df.loc[idx] = {
+#             self.EXPERIMENT_ID: summary.research_id.experiment_id, 
+#             self.STUDY_ID: summary.research_id.study_id, 
+#             self.EXPERIMENT_COL: summary.research_id.experiment_name, 
+#             self.DATASET_COL: summary.dataset, 
+#             self.DATE_COL: date_, 
+#             self.TIME_COL: time, 
+#             self.TEST_COL: test_type, 
+#             self.DESCRIPTION_COL: summary.description
+#         }
+#         return True
     
-    def delete_study(self, study_id: str):
-        self._key_df = self._key_df.loc[self._key_df[self.STUDY_ID] != study_id]
-        self._result_df = self._result_df.loc[self._key_df[self.STUDY_ID] != study_id]
+#     def delete_study(self, study_id: str):
+#         self._key_df = self._key_df.loc[self._key_df[self.STUDY_ID] != study_id]
+#         self._result_df = self._result_df.loc[self._key_df[self.STUDY_ID] != study_id]
 
-    def drop_experiment(self, experiment_id: str):
-        self._key_df = self._key_df.loc[self._key_df[self.EXPERIMENT_ID] != experiment_id]
-        self._result_df = self._result_df.loc[self._key_df[self.EXPERIMENT_ID] != experiment_id]
+#     def drop_experiment(self, experiment_id: str):
+#         self._key_df = self._key_df.loc[self._key_df[self.EXPERIMENT_ID] != experiment_id]
+#         self._result_df = self._result_df.loc[self._key_df[self.EXPERIMENT_ID] != experiment_id]
 
-    def add_summary(
-        self, experiment: Experiment
-    ):
+#     def add_summary(
+#         self, experiment: Experiment
+#     ):
 
-        self.add_experiment(experiment)
-        cur_results = experiment.summarize()
-        self._result_df = pd.concat([self._result_df, cur_results], ignore_index=True)
+#         self.add_experiment(experiment)
+#         cur_results = experiment.summarize()
+#         self._result_df = pd.concat([self._result_df, cur_results], ignore_index=True)
 
-    @property
-    def dir(self):
-        return f'{self._directory_path}/{self._study_name}'
-        # return f'{self._directory_path}/{self._dataset}/'
+#     @property
+#     def dir(self):
+#         return f'{self._directory_path}/{self._study_name}'
+#         # return f'{self._directory_path}/{self._dataset}/'
 
-    @property
-    def info_file(self):
-        return f'{self.dir}/info.json'
+#     @property
+#     def info_file(self):
+#         return f'{self.dir}/info.json'
     
-    @property
-    def key_file(self):
-        return f'{self.dir}/key.csv'
+#     @property
+#     def key_file(self):
+#         return f'{self.dir}/key.csv'
 
-    @property
-    def result_file(self):
-        return f'{self.dir}/results.csv' 
+#     @property
+#     def result_file(self):
+#         return f'{self.dir}/results.csv' 
 
-    def reload_file(self):
-        with open(self.info_file, 'r') as fp:
-            self._info = json.load(fp)
-        # self._dataset = self._info[self.DATASET_COL]
-        self._key_df = pd.read_csv(self.key_file)
-        self._result_df = pd.read_csv(self.result_file)
+#     def reload_file(self):
+#         with open(self.info_file, 'r') as fp:
+#             self._info = json.load(fp)
+#         # self._dataset = self._info[self.DATASET_COL]
+#         self._key_df = pd.read_csv(self.key_file)
+#         self._result_df = pd.read_csv(self.result_file)
 
-    def to_file(self):
-        mkdir(self.dir)
-        with open(self.info_file, 'w') as fp:
-            json.dump(self._info, fp)
-        self._key_df.to_csv(self.key_file, index=False)
-        self._result_df.to_csv(self.result_file, index=False)
+#     def to_file(self):
+#         mkdir(self.dir)
+#         with open(self.info_file, 'w') as fp:
+#             json.dump(self._info, fp)
+#         self._key_df.to_csv(self.key_file, index=False)
+#         self._result_df.to_csv(self.result_file, index=False)
 
 
-def output_results_to_file(
-    summaries: typing.List[Experiment], directory: str, study_name: str
-):
-    result_manager = ResultManager(directory, study_name, True)
+# def output_results_to_file(
+#     summaries: typing.List[Experiment], directory: str, study_name: str
+# ):
+#     result_manager = ResultManager(directory, study_name, True)
     
-    for summary in summaries:
-        result_manager.add_summary(summary)
+#     for summary in summaries:
+#         result_manager.add_summary(summary)
     
-    result_manager.to_file()
+#     result_manager.to_file()
 
