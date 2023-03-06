@@ -6,7 +6,11 @@ import typing
 import typing
 from pytest import param
 from itertools import chain
+from datetime import datetime
 import inspect
+from uuid import uuid4
+import os
+import json
 
 # 3rd party
 from numpy import isin
@@ -18,7 +22,8 @@ from hydra import compose, initialize, initialize_config_dir
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
 import functools
-
+import pandas as pd
+from pandas import DataFrame
 
 # my libraries
 from octako.components import Learner
@@ -557,11 +562,17 @@ class TeacherFactory(object):
         pass
 
 
-# class Study(ABC):
-    
-#     @abstractmethod
-#     def run(self, name: str) -> dict:
-#         raise NotImplementedError
+EXPERIMENT_COL = 'Experiment'
+DATASET_COL = 'Dataset' 
+TRIAL_COL = 'Trial'
+SCORE_COL = 'Score'
+DATE_COL = "Date"
+TIME_COL = "Time"
+TEST_COL = "Test Type"
+MACHINE_COL = "Machine Type"
+STUDY_ID = "Study ID"
+EXPERIMENT_ID = "Experiment ID"
+DESCRIPTION_COL = "Description"
 
 
 @dataclass
@@ -570,7 +581,45 @@ class Experiment(object):
     name: str
     score: float
     chart: teach.Chart
+    description: str
+    trial_name: str
+    dataset: str
+    is_validation: bool
+    research_id: teach.ResearchID
     study_builder: 'StudyBuilder'
+
+    def __post_init__(self):
+        self.experiment_id = uuid4()
+        date_, time = self.datetime_to_str(self.research_id.experiment_date)
+        self.date = date_
+        self.time = time
+
+    def datetime_to_str(self, experiment_date: datetime):
+        return experiment_date.strftime("%Y/%m/%d"),  experiment_date.strftime("%H:%M:%S")
+    
+    def test_type_to_str(self, is_validation: bool):
+        if is_validation:
+            test_type = "Validation"
+        else: test_type = "Test"
+        return test_type
+
+    def summarize(self):
+        # TODO: Implement a better way to do the averaging
+        results = self.chart.df
+        cur_result = results[['Teacher', 'Epoch', 'loss', 'validation']].groupby(
+            by=['Teacher', 'Epoch']
+        ).mean().reset_index()
+        cur_result[[EXPERIMENT_ID, EXPERIMENT_COL, STUDY_ID, DATASET_COL, TRIAL_COL, DATE_COL, TIME_COL, TEST_COL]] = [
+            self.research_id.experiment_id, 
+            self.research_id.experiment_name, 
+            self.research_id.study_name, 
+            self.dataset, 
+            self.trial_name, 
+            self.date, 
+            self.time, 
+            self.test_type_to_str(self.is_validation)
+        ]    
+        return cur_result
 
 
 class ExperimentLog(object):
@@ -663,14 +712,14 @@ class StandardStudyBuilder(StudyBuilder):
         return self.dataset_loader_
 
 
-
 class OptunaStudy(object):
 
     best_idx = 'BEST'
     final_idx = 'FINAL'
 
     def __init__(
-        self, study_builder: StudyBuilder, maximize: bool
+        self, study_builder: StudyBuilder, maximize: bool,
+        research: str='', study: str='', description: str=''
         # learner_factory: LearnerFactory, 
         # dataset_loader: teach.DatasetLoader,
         # learner_params: Params=None,
@@ -691,6 +740,10 @@ class OptunaStudy(object):
         self._maximize = maximize
         self._study_builder = study_builder
         self._direction = self.get_direction(self._maximize)
+        self.research = research
+        self.description = description
+        self.study = study
+        self.study_id = uuid4()
         # TODO: generalize this and add a class method to simplify creating
         # standard studies
         # self._learner_factory = learner_factory
@@ -740,7 +793,7 @@ class OptunaStudy(object):
     #     self._teacher_factory = teacher_factory
     #     self._teacher_params = params
     
-    def get_objective(self, experiments: ExperimentLog) -> typing.Callable:
+    def get_objective(self, experiment_name: str, experiments: ExperimentLog) -> typing.Callable:
         cur: int = 0
 
         def objective(trial: optuna.Trial):
@@ -752,17 +805,25 @@ class OptunaStudy(object):
             learner = study_builder.learner()
 
             score, chart = teacher.validate(learner)
-            experiments.add(Experiment(str(cur), score, chart, study_builder))
+            experiments.add(Experiment(
+                score, chart, self.description, 
+                str(cur), True, 
+                teach.ResearchID(
+                    self.research, self.study, experiment_name,
+                    self.study_id
+                ), 
+                study_builder)
+            )
 
             cur += 1
             return score
         return objective
     
-    def run_trials(self, n_trials: int) -> typing.List[Experiment]:
+    def run_trials(self, n_trials: int, experiment_name: str='') -> ExperimentLog:
 
         experiment_log = ExperimentLog(self._maximize)
         optuna_study = optuna.create_study(direction=self._direction)
-        objective = self.get_objective(experiment_log)
+        objective = self.get_objective(experiment_name, experiment_log)
         optuna_study.optimize(objective, n_trials)
 
         _, best = experiment_log.best()
@@ -841,4 +902,152 @@ class HydraStudyConfig(object):
     # @property
     # def params(self) -> Params:
     #     return self._params
+
+
+def combine_results(label_col: str, results: typing.Dict[str, DataFrame]) -> DataFrame:
+
+    results_with_label = []
+    for k, result in results.items():
+        cur_result = result.results.copy()
+        cur_result[label_col] = k
+        results_with_label.append(
+            cur_result
+        )
+    return pd.concat(results_with_label)
+
+
+def mkdir(dir):
+    if not  os.path.exists(dir):
+        os.makedirs(dir)
+
+
+class ResultManager(object):
+
+    EXPERIMENT_COL = 'Experiment'
+    DATASET_COL = 'Dataset' 
+    TRIAL_COL = 'Trial'
+    SCORE_COL = 'Score'
+    DATE_COL = "Date"
+    TIME_COL = "Time"
+    TEST_COL = "Test Type"
+    MACHINE_COL = "Machine Type"
+    STUDY_ID = "Study ID"
+    EXPERIMENT_ID = "Experiment ID"
+    DESCRIPTION_COL = "Description"
     
+    # TODO: STORE THE COLUMN USED BY AN EXPERIMENT SOMEWHERE
+
+    def __init__(self, directory_path: str, study_name: str, load_if_available: bool=True):
+        """initializer
+        """
+        # load the results
+        self._directory_path = directory_path
+        # self._dataset = dataset
+        self._study_name = study_name
+        loaded = False
+        if load_if_available:
+            try:
+                self.reload_file()
+                loaded = True
+            except (FileNotFoundError, AttributeError):
+                loaded = False
+
+        if not loaded:
+            self._info = {} # {self.DATASET_COL: self._dataset}
+            self._key_df = pd.DataFrame(
+                columns=[self.DATASET_COL, self.EXPERIMENT_COL, self.STUDY_ID, self.EXPERIMENT_ID, self.DESCRIPTION_COL]
+            )
+            self._result_df = pd.DataFrame(
+                columns=[self.DATASET_COL, self.EXPERIMENT_COL, self.STUDY_ID, self.EXPERIMENT_ID]
+            )
+
+    @property
+    def n_results(self):
+        return len(self._result_df)
+    
+    @property
+    def n_experiments(self):
+        return len(self._key_df)
+
+    def add_experiment(
+        self, summary: Experiment
+    ) -> bool:
+        # case 1: 
+
+        if self._key_df[self.EXPERIMENT_ID].str.contains(
+            summary.research_id.experiment_id
+        ).any():
+            return False
+        test_type = summary.test_type_to_str(summary.is_validation)
+        idx = len(self._key_df.index)
+        date_, time = summary.datetime_to_str(summary.research_id.experiment_date)
+        self._key_df.loc[idx] = {
+            self.EXPERIMENT_ID: summary.research_id.experiment_id, 
+            self.STUDY_ID: summary.research_id.study_id, 
+            self.EXPERIMENT_COL: summary.research_id.experiment_name, 
+            self.DATASET_COL: summary.dataset, 
+            self.DATE_COL: date_, 
+            self.TIME_COL: time, 
+            self.TEST_COL: test_type, 
+            self.DESCRIPTION_COL: summary.description
+        }
+        return True
+    
+    def delete_study(self, study_id: str):
+        self._key_df = self._key_df.loc[self._key_df[self.STUDY_ID] != study_id]
+        self._result_df = self._result_df.loc[self._key_df[self.STUDY_ID] != study_id]
+
+    def drop_experiment(self, experiment_id: str):
+        self._key_df = self._key_df.loc[self._key_df[self.EXPERIMENT_ID] != experiment_id]
+        self._result_df = self._result_df.loc[self._key_df[self.EXPERIMENT_ID] != experiment_id]
+
+    def add_summary(
+        self, experiment: Experiment
+    ):
+
+        self.add_experiment(experiment)
+        cur_results = experiment.summarize()
+        self._result_df = pd.concat([self._result_df, cur_results], ignore_index=True)
+
+    @property
+    def dir(self):
+        return f'{self._directory_path}/{self._study_name}'
+        # return f'{self._directory_path}/{self._dataset}/'
+
+    @property
+    def info_file(self):
+        return f'{self.dir}/info.json'
+    
+    @property
+    def key_file(self):
+        return f'{self.dir}/key.csv'
+
+    @property
+    def result_file(self):
+        return f'{self.dir}/results.csv' 
+
+    def reload_file(self):
+        with open(self.info_file, 'r') as fp:
+            self._info = json.load(fp)
+        # self._dataset = self._info[self.DATASET_COL]
+        self._key_df = pd.read_csv(self.key_file)
+        self._result_df = pd.read_csv(self.result_file)
+
+    def to_file(self):
+        mkdir(self.dir)
+        with open(self.info_file, 'w') as fp:
+            json.dump(self._info, fp)
+        self._key_df.to_csv(self.key_file, index=False)
+        self._result_df.to_csv(self.result_file, index=False)
+
+
+def output_results_to_file(
+    summaries: typing.List[Experiment], directory: str, study_name: str
+):
+    result_manager = ResultManager(directory, study_name, True)
+    
+    for summary in summaries:
+        result_manager.add_summary(summary)
+    
+    result_manager.to_file()
+
