@@ -601,7 +601,7 @@ class Experiment(object):
         else: test_type = "Test"
         return test_type
 
-    def summarize(self):
+    def summarize(self) -> pd.DataFrame:
         # TODO: Implement a better way to do the averaging
         results = self.chart.df
         cur_result = results[['Teacher', 'Epoch', 'loss', 'validation']].groupby(
@@ -639,7 +639,7 @@ class ExperimentLog(object):
             enumerate(self._experiments)
         )
     
-    def summarize(self):
+    def summarize(self) -> pd.DataFrame:
         summaries = [experiment.summarize() for experiment in self._experiments]
         return pd.concat(summaries)
 
@@ -820,7 +820,7 @@ class OptunaStudy(object):
             return score
         return objective
     
-    def run_trials(self, n_trials: int, experiment_name: str='') -> ExperimentLog:
+    def run_trials(self, n_trials: int, experiment_name: str='') -> typing.Tuple[Experiment, ExperimentLog]:
 
         experiment_log = ExperimentLog(self._maximize)
         optuna_study = optuna.create_study(direction=self._direction)
