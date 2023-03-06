@@ -578,12 +578,10 @@ DESCRIPTION_COL = "Description"
 @dataclass
 class Experiment(object):
 
-    name: str
     score: float
     chart: teach.Chart
     description: str
     trial_name: str
-    dataset: str
     is_validation: bool
     research_id: teach.ResearchID
     study_builder: 'StudyBuilder'
@@ -609,11 +607,10 @@ class Experiment(object):
         cur_result = results[['Teacher', 'Epoch', 'loss', 'validation']].groupby(
             by=['Teacher', 'Epoch']
         ).mean().reset_index()
-        cur_result[[EXPERIMENT_ID, EXPERIMENT_COL, STUDY_ID, DATASET_COL, TRIAL_COL, DATE_COL, TIME_COL, TEST_COL]] = [
+        cur_result[[EXPERIMENT_ID, EXPERIMENT_COL, STUDY_ID, TRIAL_COL, DATE_COL, TIME_COL, TEST_COL]] = [
             self.research_id.experiment_id, 
             self.research_id.experiment_name, 
             self.research_id.study_name, 
-            self.dataset, 
             self.trial_name, 
             self.date, 
             self.time, 
@@ -835,7 +832,12 @@ class OptunaStudy(object):
         learner = best.study_builder.learner()
 
         score, chart = teacher.train(learner)
-        final = Experiment("best", score, chart, best)
+        final = Experiment(
+            score, chart, self.description, "best", False, 
+            teach.ResearchID(
+                self.research, self.study, experiment_name,
+                self.study_id
+            ),  best)
         experiment_log.add(final)
         return final, experiment_log
 
