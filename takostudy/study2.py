@@ -698,6 +698,8 @@ class StandardStudyBuilder(StudyBuilder):
     learner_factory: LearnerFactory
     learner_params: Params
     dataset_loader_: teach.DatasetLoader
+    loss_window: int=30
+    listeners: typing.List[octako.teach.IReceiver]=None
 
     def learner(self) -> Learner:
         return self.learner_factory(self.learner_params)
@@ -706,7 +708,7 @@ class StandardStudyBuilder(StudyBuilder):
         return teach.MainTeacher(
             self.lesson_name,
             self.batch_size, self.n_epochs, self.dataset_loader(),
-            loss_window=30
+            loss_window=self.loss_window, listeners=self.listeners
         )
 
     def dataset_loader(self) -> teach.DatasetLoader:
@@ -721,11 +723,6 @@ class OptunaStudy(object):
     def __init__(
         self, study_builder: StudyBuilder, maximize: bool,
         research: str='', study: str='', description: str=''
-        # learner_factory: LearnerFactory, 
-        # dataset_loader: teach.DatasetLoader,
-        # learner_params: Params=None,
-        # batch_size: int=64, n_epochs: int=10, base_name: str='', 
-        # maximize: bool=False, device: str='cpu'
     ):
         """initializer
 
@@ -745,21 +742,12 @@ class OptunaStudy(object):
         self.description = description
         self.study = study
         self.study_id = uuid4()
-        # TODO: generalize this and add a class method to simplify creating
-        # standard studies
-        # self._learner_factory = learner_factory
-        # self._learner_params = learner_params
-        # self._teacher_factory: TeacherFactory = teach.MainTeacher
-        # self._teacher_params = Params(
-        #     {'batch_size': batch_size, 'n_epochs': n_epochs, 'dataset_loader': dataset_loader}
-        # )
-        # self._base_name = base_name
-        # self._device = device
 
     @classmethod
     def build_standard(
         cls, lesson_name: str, batch_size: int, n_epochs: int, learner_factory: 'LMFactory', 
-        learner_params: Params, dataset_loader: teach.DatasetLoader, maximize: bool
+        learner_params: Params, dataset_loader: teach.DatasetLoader, maximize: bool,
+        loss_window: int=30, listeners: typing.List[octako.teach.IReceiver]=None
     ):
         """Build an OptunaStudy
 
@@ -776,23 +764,13 @@ class OptunaStudy(object):
         return OptunaStudy(
             StandardStudyBuilder(
                 lesson_name, batch_size, n_epochs, maximize, learner_factory,  
-                learner_params, dataset_loader
+                learner_params, dataset_loader, loss_window, listeners
             ), maximize
         )
 
     @staticmethod
     def get_direction(to_maximize):
         return optuna.study.StudyDirection.MAXIMIZE if to_maximize else optuna.study.StudyDirection.MINIMIZE
-
-    # def update_teacher(self, teacher_factory: 'TeacherFactory', params: Params):
-    #     """Update the teacher factory to use
-
-    #     Args:
-    #         teacher_factory (TeacherFactory): 
-    #         params (Params): 
-    #     """
-    #     self._teacher_factory = teacher_factory
-    #     self._teacher_params = params
     
     def get_objective(self, experiment_name: str, experiments: ExperimentLog) -> typing.Callable:
         cur: int = 0
@@ -858,9 +836,10 @@ class HydraStudyConfig(object):
 
         # overrides=["db=mysql", "db.user=me"])
         cfg = compose(config_name=name, overrides=overrides_list) 
-        hydra.utils.call(
-            cfg.paths
-        )
+        if hasattr(cfg, 'paths'):
+            hydra.utils.call(
+                cfg.paths
+            )
         self._cfg = cfg
         # self._params = to_params(self.experiment_cfg)
 
