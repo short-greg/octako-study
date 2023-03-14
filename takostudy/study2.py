@@ -651,11 +651,7 @@ class StudyBuilder(ABC):
     """
 
     @abstractmethod
-    def learner(self) -> Learner:
-        pass
-    
-    @abstractmethod
-    def teacher(self) -> teach.Teacher:
+    def build(self) -> typing.Tuple[Learner, teach.Teacher]:
         pass
 
     @abstractmethod
@@ -701,11 +697,8 @@ class StandardStudyBuilder(StudyBuilder):
     loss_window: int=30
     listeners: typing.List[octako.teach.IReceiver]=None
 
-    def learner(self) -> Learner:
-        return self.learner_factory(self.learner_params)
-    
-    def teacher(self) -> teach.MainTeacher:
-        return teach.MainTeacher(
+    def build(self) -> typing.Tuple[Learner, teach.MainTeacher]:
+        return self.learner_factory(self.learner_params), teach.MainTeacher(
             self.lesson_name,
             self.batch_size, self.n_epochs, self.dataset_loader(),
             loss_window=self.loss_window, listeners=self.listeners
@@ -780,8 +773,7 @@ class OptunaStudy(object):
             nonlocal experiments
 
             study_builder = self._study_builder.suggest(trial)
-            teacher = study_builder.teacher()
-            learner = study_builder.learner()
+            learner, teacher = study_builder.build()
 
             score, chart = teacher.validate(learner)
             experiments.add(Experiment(
@@ -806,8 +798,7 @@ class OptunaStudy(object):
         optuna_study.optimize(objective, n_trials)
 
         _, best = experiment_log.best()
-        teacher = best.study_builder.teacher()
-        learner = best.study_builder.learner()
+        learner, teacher = best.study_builder.build()
 
         score, chart = teacher.train(learner)
         final = Experiment(
